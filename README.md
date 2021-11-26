@@ -7,4 +7,11 @@ We validated the presence of lncRNAs in other datasets by utilising sequencing r
 
 SRA read accessions were downloaded and named accordingly (e.g. time, fe, mito).
 
+The SRAToolkit was then used to download these reads. Corresponding accessions and HPC script is found within `SRA/accessions`
+
+**Testing strandedness**
+
+Strandendess was tested for by using Salmon to map reads, from each of the SRA data sets, onto the A1163 genome. An A1163 mapping index file was produced via Hisat2. 
+
+
 
