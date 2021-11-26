@@ -11,7 +11,7 @@ The SRAToolkit was then used to download these reads. Corresponding accessions a
 
 **Testing strandedness**
 
-Strandendess was tested for by using Salmon to map reads, from each of the SRA data sets, onto the A1163 genome. An A1163 mapping index file was produced via Hisat2. 
+Strandendess was tested for by using Salmon to map reads, from each of the SRA data sets, onto an indexed version of the newly generated GTF. 
 
 
 
