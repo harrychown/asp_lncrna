@@ -30,10 +30,10 @@ getdeseq <- function(indata, countsdir){
   num_transcripts <- length(dds@rowRanges)
   
   # Generate an empty results table for LFC, p-value and baseMean
-  lfc_matrix <- matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1)
-  pval_matrix <- matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1)
-  basemean_matrix <- matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1)
-  sqrd_lfc_matrix <- matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1)
+  lfc_matrix <- as.data.frame(matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1))
+  pval_matrix <- as.data.frame(matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1))
+  basemean_matrix <- as.data.frame(matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1))
+  sqrd_lfc_matrix <- as.data.frame(matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1))
   
   colnames(lfc_matrix) <- colnames(pval_matrix) <- colnames(basemean_matrix) <-  colnames(sqrd_lfc_matrix) <- all_conditions[2:length(all_conditions)]
   
@@ -44,6 +44,8 @@ getdeseq <- function(indata, countsdir){
   for(i in 2:length(all_conditions)){
     res <- results(dds, c("condition", all_conditions[i], all_conditions[1]))
     res_df <- as.data.frame(res)
+    rownames(lfc_matrix) <- rownames(pval_matrix) <- rownames(basemean_matrix) <-  rownames(sqrd_lfc_matrix) <- rownames(res_df)
+    
     # Store results in previously generated matrices
     lfc_matrix[,i-1] <- res_df$log2FoldChange
     pval_matrix[,i-1] <- res_df$padj
@@ -63,12 +65,13 @@ getdeseq <- function(indata, countsdir){
   # Filter
   keep_index <- which((best_dataframe$basemean>30&best_dataframe$pval<0.05&best_dataframe$sqrdlfc>1)|best_dataframe$basemean>5000)
   keep_index <- keep_index[! keep_index %in% which(is.na(best_dataframe))]
-  
+  keep_rownames <- rownames(lfc_matrix)[keep_index]
   for(i in 1:length(output)){
     dm <- output[[i]]
     print(nrow(dm))
     print(max(keep_index))
     filtered_dm <- dm[keep_index, ]
+    rownames(filtered_dm) <- keep_rownames
     output[[i]] <- filtered_dm
   }
   
