@@ -270,151 +270,94 @@ if(file.exists("lncnrna_deseq.rds")){
 }
 
 
-### IDENTIFY OPTIMAL NUMBER OF CLUSTERS FOR ITRA ###
+### PERFORM CLUSTERING OF ITRA DATA###
 itra_data <- all_deseq$itra
 itra_lfc <- itra_data$lfc
-
-# Use silhouette to identify optimal number of K-clusters
+# Scale each transcript relative to itself
+norm_wide_data <-  t(scale(t(itra_lfc)))
+# Generate inverse data
+lncrna_id <- grep("MSTRG", rownames(norm_wide_data))
+inv_wide_data <- norm_wide_data
+inv_wide_data[lncrna_id, ] <- inv_wide_data[lncrna_id, ] * -1
+# Perform clustering
 set.seed(0)
-fviz_nbclust(itra_lfc, kmeans, method='silhouette', k.max=30)
-# Perform kmeans using optimum-K
-res.km.15 <- kmeans(itra_lfc, centers = 15)
-fviz_cluster(res.km.15, data = itra_lfc,
-             geom = "point",
-             ellipse.type = "convex", 
-             ggtheme = theme_bw()
-)
-
-### QUICK LINE GRAPH ###
-# Convert data to long 
-wide_data <- itra_lfc
-wide_data <- cbind(rep(0, nrow(wide_data)), wide_data)
-# Remove column MIC = 4
-wide_data <- wide_data[,1:ncol(wide_data)-1]
-# Remove columns MIC = 0.25
-wide_data <- wide_data[,-2]
-
-wide_data <- itra_lfc
-# norm_wide_data <- t(apply(wide_data, 1, rescale))
-# norm_wide_data2 <- apply(wide_data, 2, rescale)
-
-norm_wide_data <-  t(scale(t(wide_data)))
-# norm_wide_data <- normalize(wide_data, method = "standardize", margin = 1)
-# norm_wide_data2 <- normalize(wide_data, method = "standardize", margin = 2)
-set.seed(0)
-out<- pheatmap(wide_data, kmeans_k = 20, scale = "row",
-                  cluster_cols = F, cluster_rows = T)
-out2<- pheatmap(norm_wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
+km <- pheatmap(norm_wide_data, kmeans_k = 20, scale = "row",
+               cluster_cols = F, cluster_rows = T)
+inv_km <- pheatmap(inv_wide_data, kmeans_k = 20, scale = "row",
+               cluster_cols = F, cluster_rows = T)
+hierarch <- pheatmap(norm_wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
                 clustering_distance_rows="euclidean",
                 cex=1, clustering_distance_cols="euclidean", 
                 clustering_method="complete", border_color=FALSE)
+inv_hierarch <- pheatmap(inv_wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
+                    clustering_distance_rows="euclidean",
+                    cex=1, clustering_distance_cols="euclidean", 
+                    clustering_method="complete", border_color=FALSE)
+print(km)
+dev.off()
+#print(hierarch)
+dev.off()
 
-# out3<- pheatmap(wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
-#                 clustering_distance_rows="euclidean", scale="row",
-#                 cex=1, clustering_distance_cols="euclidean", 
-#                 clustering_method="complete", border_color=FALSE, cutree_rows = 30)
+### GENERATE CLUSTER GRAPHS ###
+# Convert wide data to long
+wide_data <-  as.data.frame(norm_wide_data)
+# Add transcript ID, cluster number and transcript type (lncrna/pcg)
+wide_data$transcript <- rownames(wide_data)
+wide_data$cluster <- km$kmeans$cluster
+wide_data$inv_cluster <- inv_km$kmeans$cluster
+wide_data$type <- rep("pcg", nrow(wide_data))
+wide_data$type[grep("MSTRG", wide_data$transcript)] <- "lncrna"
+
+long_data <- melt(setDT(wide_data), id.vars = c("transcript", "cluster", "inv_cluster", "type"), variable.name = "condition")
+# Set the MIC to numeric format
+long_data$condition <- as.numeric(levels(long_data$condition))[long_data$condition]
+
+# Plot clusters
+p <- ggplot(data=long_data, aes(x=condition, y=value, group=transcript, color=type)) +
+  #geom_line()+
+  geom_smooth(aes(group=transcript)) +
+  geom_point() +
+  
+p + facet_wrap(~ cluster)
 
 
+### CHECK WHETHER THE NEIGHBOURS ARE IN THE SAME CLUSTER ###
+# Generate a new dataframe with cluster columns
+neighbour_lncrna_w_cluster <- neighbour_lncrna
+neighbour_lncrna_w_cluster$t_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
+neighbour_lncrna_w_cluster$n_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
+neighbour_lncrna_w_cluster$inv_t_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
+neighbour_lncrna_w_cluster$inv_n_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
 
-dist_mat <- dist(itra_lfc, method = 'euclidean')
-hclust_avg <- hclust(dist_mat, method = 'average')
-plot(hclust_avg)
-
-
-
-
-
-
-
-# Perform initial clustering to get generic clusters
-fviz_nbclust(norm_wide_data, kmeans, method='silhouette', k.max=30)
-init.km <- kmeans(wide_data, centers = 3)
-
-
-
-
-
-
-# Add cluster column to wide data
-init.km.W.data <- wide_data
-init.km.W.data$init.cluster <- init.km$cluster
-# Cluster initial clusters
-for(init_cluster in 1:max(init.km.W.data$init.cluster)){
-  # Extract cluster data
-  init_cluster_data <- init.km.W.data[which(init.km.W.data$init.cluster == init_cluster),]
-  init_cluster_data <- init_cluster_data[-ncol(init_cluster_data)]
-  sil <- fviz_nbclust(init_cluster_data, kmeans, method='silhouette', k.max=30)
-  print(sil)
+for(i in 1:nrow(neighbour_lncrna)){
+  # Extract transcript names
+  t_name <- neighbour_lncrna$pcg_transcript[i]
+  n_name <- neighbour_lncrna$transcript_neighbour[i]
+  
+  # Extract relevant IDs in wide data
+  t_wide_id <- which(t_name == wide_data$transcript)
+  n_wide_id <- which(n_name == wide_data$transcript)
+  # Check transcript exists in DESEQ results, if so add cluster details
+  if(length(t_wide_id) > 0){
+    t_data <- wide_data[t_wide_id, ]
+    neighbour_lncrna_w_cluster$t_clust[i] <- t_data$cluster
+    neighbour_lncrna_w_cluster$inv_t_clust[i] <- t_data$inv_cluster
+  }
+  if(length(n_wide_id) > 0){
+    n_data <- wide_data[n_wide_id, ]
+    neighbour_lncrna_w_cluster$n_clust[i] <- n_data$cluster
+    neighbour_lncrna_w_cluster$inv_n_clust[i] <- n_data$inv_cluster
+  }
+  
+  
 }
 
 
+same_clusters <- which(neighbour_lncrna_w_cluster$t_clust == neighbour_lncrna_w_cluster$n_clust)
+same_clust_df <- neighbour_lncrna_w_cluster[same_clusters, ]
 
-
-
-
-
-### CHECK WHETHER LNCRNA DE SPECIFIC TO ERGOSTEROL DRUGS ###
-# Select ergosterol-based datasets
-erg <- c("itra", "simv", "terb")
-for(i in erg){
-  erg_list <- which(names(all_deseq) == erg)
-}
-erg_list_id <- which(names(all_deseq) %in% erg)
-all_deseq[[1]]$lfc
-
-# Iterate through each cluster and plot graphs
-for(clust_num in 1:max(res.km$cluster)){
-
-  cluster_id <- which(res.km$cluster == clust_num)
-
-  cluster_names <- rownames(itra_lfc)[cluster_id]
-
-  cluster_data <- long_data[which(long_data$transcript %in% cluster_names),]
-
-  p <- ggplot(data=cluster_data, aes(x=condition, y=value, group=transcript, color=type)) +
-      ggtitle(paste(c("Cluster: ", as.character(clust_num)), sep ="", collapse="")) +
-      geom_line()+
-      geom_point()
-  print(p)
-}
-
-
-# Extract cluster graphs
-which(long_data$transcript %in% cluster_7_lfc)
-
-# Extract cluster 1 for further analysis
-cluster_1_id <- which(res.km.15$cluster == 1)
-cluster_1_lfc <- itra_lfc[cluster_1_id,]
-# Extract cluster 7 for further analysis
-cluster_7_id <- which(res.km.15$cluster == 7)
-cluster_7_lfc <- rownames(itra_lfc)[cluster_7_id]
-
-res.km <- kmeans(itra_lfc, centers = 2)
-fviz_cluster(res.km, data = itra_lfc,
-             geom = "point",
-             ellipse.type = "convex", 
-             ggtheme = theme_bw()
-)
-
-# Repeat hierarchical clustering without heatmap - simpler functions
-dist_mat <- dist(itra_lfc, method = 'euclidean')
-hclust_avg <- hclust(dist_mat, method = 'average')
-plot(hclust_avg)
-
-# Cut it into two clusters
-hierarchical_clusters <- cutree(hclust_avg, h=4)
-max(hierarchical_clusters)
-rect.hclust(hclust_avg , h = 2)
-
-out2<- pheatmap(itra_lfc, show_rownames=F, cluster_cols=F, cluster_rows=T, 
-                scale="row", cex=1, clustering_distance_rows="euclidean", 
-                cex=1, clustering_distance_cols="euclidean", 
-                clustering_method="complete", border_color=FALSE)
-
-## NEED TO ADD ROWNAMES TO DATA
-
-
-
+inv_clusters <- which(neighbour_lncrna_w_cluster$inv_t_clust == neighbour_lncrna_w_cluster$inv_n_clust)
+inv_clust_df <- neighbour_lncrna_w_cluster[inv_clusters, ]
 
 
 
