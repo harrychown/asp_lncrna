@@ -10,6 +10,10 @@ library(RColorBrewer)
 library(tibble)
 library("biomaRt")
 library("DESeq2")
+library(factoextra)
+library(tidyr)
+
+library(scales)
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 #source("cluster_deseq.R")
@@ -269,6 +273,138 @@ if(file.exists("lncnrna_deseq.rds")){
 ### IDENTIFY OPTIMAL NUMBER OF CLUSTERS FOR ITRA ###
 itra_data <- all_deseq$itra
 itra_lfc <- itra_data$lfc
+
+# Use silhouette to identify optimal number of K-clusters
+set.seed(0)
+fviz_nbclust(itra_lfc, kmeans, method='silhouette', k.max=30)
+# Perform kmeans using optimum-K
+res.km.15 <- kmeans(itra_lfc, centers = 15)
+fviz_cluster(res.km.15, data = itra_lfc,
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+)
+
+### QUICK LINE GRAPH ###
+# Convert data to long 
+wide_data <- itra_lfc
+wide_data <- cbind(rep(0, nrow(wide_data)), wide_data)
+# Remove column MIC = 4
+wide_data <- wide_data[,1:ncol(wide_data)-1]
+# Remove columns MIC = 0.25
+wide_data <- wide_data[,-2]
+
+wide_data <- itra_lfc
+# norm_wide_data <- t(apply(wide_data, 1, rescale))
+# norm_wide_data2 <- apply(wide_data, 2, rescale)
+
+norm_wide_data <-  t(scale(t(wide_data)))
+# norm_wide_data <- normalize(wide_data, method = "standardize", margin = 1)
+# norm_wide_data2 <- normalize(wide_data, method = "standardize", margin = 2)
+set.seed(0)
+out<- pheatmap(wide_data, kmeans_k = 20, scale = "row",
+                  cluster_cols = F, cluster_rows = T)
+out2<- pheatmap(norm_wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
+                clustering_distance_rows="euclidean",
+                cex=1, clustering_distance_cols="euclidean", 
+                clustering_method="complete", border_color=FALSE)
+
+# out3<- pheatmap(wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
+#                 clustering_distance_rows="euclidean", scale="row",
+#                 cex=1, clustering_distance_cols="euclidean", 
+#                 clustering_method="complete", border_color=FALSE, cutree_rows = 30)
+
+
+
+dist_mat <- dist(itra_lfc, method = 'euclidean')
+hclust_avg <- hclust(dist_mat, method = 'average')
+plot(hclust_avg)
+
+
+
+
+
+
+
+# Perform initial clustering to get generic clusters
+fviz_nbclust(norm_wide_data, kmeans, method='silhouette', k.max=30)
+init.km <- kmeans(wide_data, centers = 3)
+
+
+
+
+
+
+# Add cluster column to wide data
+init.km.W.data <- wide_data
+init.km.W.data$init.cluster <- init.km$cluster
+# Cluster initial clusters
+for(init_cluster in 1:max(init.km.W.data$init.cluster)){
+  # Extract cluster data
+  init_cluster_data <- init.km.W.data[which(init.km.W.data$init.cluster == init_cluster),]
+  init_cluster_data <- init_cluster_data[-ncol(init_cluster_data)]
+  sil <- fviz_nbclust(init_cluster_data, kmeans, method='silhouette', k.max=30)
+  print(sil)
+}
+
+
+
+
+
+
+
+### CHECK WHETHER LNCRNA DE SPECIFIC TO ERGOSTEROL DRUGS ###
+# Select ergosterol-based datasets
+erg <- c("itra", "simv", "terb")
+for(i in erg){
+  erg_list <- which(names(all_deseq) == erg)
+}
+erg_list_id <- which(names(all_deseq) %in% erg)
+all_deseq[[1]]$lfc
+
+# Iterate through each cluster and plot graphs
+for(clust_num in 1:max(res.km$cluster)){
+
+  cluster_id <- which(res.km$cluster == clust_num)
+
+  cluster_names <- rownames(itra_lfc)[cluster_id]
+
+  cluster_data <- long_data[which(long_data$transcript %in% cluster_names),]
+
+  p <- ggplot(data=cluster_data, aes(x=condition, y=value, group=transcript, color=type)) +
+      ggtitle(paste(c("Cluster: ", as.character(clust_num)), sep ="", collapse="")) +
+      geom_line()+
+      geom_point()
+  print(p)
+}
+
+
+# Extract cluster graphs
+which(long_data$transcript %in% cluster_7_lfc)
+
+# Extract cluster 1 for further analysis
+cluster_1_id <- which(res.km.15$cluster == 1)
+cluster_1_lfc <- itra_lfc[cluster_1_id,]
+# Extract cluster 7 for further analysis
+cluster_7_id <- which(res.km.15$cluster == 7)
+cluster_7_lfc <- rownames(itra_lfc)[cluster_7_id]
+
+res.km <- kmeans(itra_lfc, centers = 2)
+fviz_cluster(res.km, data = itra_lfc,
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+)
+
+# Repeat hierarchical clustering without heatmap - simpler functions
+dist_mat <- dist(itra_lfc, method = 'euclidean')
+hclust_avg <- hclust(dist_mat, method = 'average')
+plot(hclust_avg)
+
+# Cut it into two clusters
+hierarchical_clusters <- cutree(hclust_avg, h=4)
+max(hierarchical_clusters)
+rect.hclust(hclust_avg , h = 2)
 
 out2<- pheatmap(itra_lfc, show_rownames=F, cluster_cols=F, cluster_rows=T, 
                 scale="row", cex=1, clustering_distance_rows="euclidean", 
