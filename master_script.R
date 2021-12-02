@@ -9,11 +9,73 @@ library(gplots)
 library(RColorBrewer)
 library(tibble)
 library("biomaRt")
+library("DESeq2")
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 #source("cluster_deseq.R")
 source("get_neighbours.R")
 source("analyse_neighbours.R")
+
+### DESEQ2 FOR CONDITIONAL DATA ###
+getdeseq <- function(indata, countsdir){
+  # Build input for DESeq
+  sampleTable<-data.frame(sampleName=indata$file, fileName=indata$file, condition=factor(indata$condition))
+  ddsHTSeq <- DESeqDataSetFromHTSeqCount(sampleTable=sampleTable, directory=countsdir, design=~condition)
+  ddsHTSeq$condition <- factor(ddsHTSeq$condition, levels=unique(ddsHTSeq$condition))
+  all_conditions <- levels(ddsHTSeq$condition)
+  
+  # Perform DESeq
+  dds <- DESeq(ddsHTSeq)
+  # Number of transcripts
+  num_transcripts <- length(dds@rowRanges)
+  
+  # Generate an empty results table for LFC, p-value and baseMean
+  lfc_matrix <- matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1)
+  pval_matrix <- matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1)
+  basemean_matrix <- matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1)
+  sqrd_lfc_matrix <- matrix(data=NA, nrow=num_transcripts, ncol=length(all_conditions) - 1)
+  
+  colnames(lfc_matrix) <- colnames(pval_matrix) <- colnames(basemean_matrix) <-  colnames(sqrd_lfc_matrix) <- all_conditions[2:length(all_conditions)]
+  
+  # Perform DESeq
+  dds <- DESeq(ddsHTSeq)
+  
+  # Extract results from each condition
+  for(i in 2:length(all_conditions)){
+    res <- results(dds, c("condition", all_conditions[i], all_conditions[1]))
+    res_df <- as.data.frame(res)
+    # Store results in previously generated matrices
+    lfc_matrix[,i-1] <- res_df$log2FoldChange
+    pval_matrix[,i-1] <- res_df$padj
+    basemean_matrix[,i-1] <- res_df$baseMean
+    sqrd_lfc_matrix[,i-1] <- res_df$log2FoldChange ** 2
+  }
+  
+  # Generate overview dataframe for filtering
+  # Min Pval, Max basemean, Max sqrdLFC
+  min_pval <- apply(pval_matrix, 1, min)
+  max_basemean <- apply(basemean_matrix, 1, max)
+  max_sqrd_lfc <- apply(sqrd_lfc_matrix, 1, max)
+  # Build dataframe
+  best_dataframe <- data.frame(pval=min_pval, basemean=max_basemean, sqrdlfc=max_sqrd_lfc)
+  # Store results in a list
+  output <- list("lfc"=lfc_matrix, "pval"=pval_matrix, "basemean"=basemean_matrix, "sqrdlfc"=sqrd_lfc_matrix)
+  # Filter
+  keep_index <- which((best_dataframe$basemean>30&best_dataframe$pval<0.05&best_dataframe$sqrdlfc>1)|best_dataframe$basemean>5000)
+  keep_index <- keep_index[! keep_index %in% which(is.na(best_dataframe))]
+  
+  for(i in 1:length(output)){
+    dm <- output[[i]]
+    print(nrow(dm))
+    print(max(keep_index))
+    filtered_dm <- dm[keep_index, ]
+    output[[i]] <- filtered_dm
+  }
+  
+  return(output)
+  
+}
+
 
 ### SETUP INPUT/OUTPUT ###
 configuration_file <- readLines("analysis.config")
@@ -180,110 +242,183 @@ for(gene in sas_out$pcg_gene){
 }
 sense_antisense_pairs <-  cbind(sas_out, gene_descriptions)
 
-
-### PERFORM DE ###
-
-
-# Generate logfold change
-source("repo_deseq.R")
-deseq_results <- deseq_func(count_directory = count_folder, split_file_path = split_file,
-                        p_val = 0.05 , min_base_mean = 30 , min_LFC = 1, signif_base_mean = 5000)
-
-
-
-
-setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-logchange <- deseq_results[[1]]
-signif_bmean <- deseq_results[[2]]
-raw_bmean <- deseq_results[[3]]
-colnames(raw_bmean) <- colnames(logchange)
-raw_counts <- deseq_results[[4]]
-
-write.csv(logchange,paste(c(prefix,"_lfc.csv"),sep="", collapse=""), row.names = T)
-# Only generate heatmaps for itra data
-if(prefix == "itra"){
-  # Generate clusters and heatmaps
-  ### GENERATE HEATMAP - Harry Chown ###
-  # Convert data into a matrix which can be used as input for heatmap
-  set.seed(2)
-  gene_names <- logchange[,1]
-  clust_num <- 30
-  out<- pheatmap(logchange, kmeans_k = clust_num, scale = "row", 
-                 cluster_cols = F)
-  out2<- pheatmap(logchange,
-                  show_rownames=F, cluster_cols=F, cluster_rows=T, scale="row",
-                  cex=1, clustering_distance_rows="euclidean", cex=1,
-                  clustering_distance_cols="euclidean", clustering_method="complete", border_color=FALSE)
-  cluster_labels <- out$kmeans$cluster
-  
-  tiff(file = paste(c(output_dir,"/log_cluster_heatmap.tiff"),sep="", collapse=""),
-       unit = "in",
-       res=600,
-       height = 7,
-       width = 4.5)
-  
-  print(out)
-  
-  dev.off()
-  
-  tiff(file = paste(c(output_dir,"/log_hierarchical_heatmap.tiff"),sep="", collapse=""),
-       unit = "in",
-       res=600,
-       height = 7,
-       width = 4.5)
-  
-  print(out2)
-  
-
-  
-  dev.off()
-  logchange_w_cluster <-  add_column(logchange, cluster = cluster_labels, .before = 1)
-  write.csv(logchange_w_cluster, paste(c(output_dir,"/lfc_w_cluster.csv"),sep="", collapse=""), row.names = T)
-  
+### PERFORM DESEQ ON ALL DATA ###
+if(file.exists("lncnrna_deseq.rds")){
+ all_deseq <- readRDS("lncnrna_deseq.rds")
+} else{
+  data_prefixes <- c()
+  all_deseq <- list()
+  counter <- 1
+  for(split_file in all_split_files){
+    prefix <- str_split(split_file, "_")[[1]][1]
+    split_file_path <- paste(c(inputdir, "/split_files/", split_file), sep="", collapse="")
+    print(split_file_path)
+    count_data <- read.csv(split_file_path, header=T)
+    deseq_data <- getdeseq(count_data, count_dir)
+    all_deseq[[counter]] <- deseq_data
+    names(all_deseq)[counter] <- prefix
+    counter <- counter + 1
+  }
+  saveRDS(all_deseq, file = "lncnrna_deseq.rds")
 }
 
 
+### IDENTIFY OPTIMAL NUMBER OF CLUSTERS FOR ITRA ###
+itra_data <- all_deseq$itra
+itra_lfc <- itra_data$lfc
+
+out2<- pheatmap(itra_lfc, show_rownames=F, cluster_cols=F, cluster_rows=T, 
+                scale="row", cex=1, clustering_distance_rows="euclidean", 
+                cex=1, clustering_distance_cols="euclidean", 
+                clustering_method="complete", border_color=FALSE)
+
+## NEED TO ADD ROWNAMES TO DATA
 
 
 
 
 
 
-# Identify and annotate lncRNA with neighbouring genes
-source("get_neighbours.R")
-lncRNA_pcg_neighbours <- get_neighbours(gtf, lncRNA_lines, PCG_lines, 5000, 10)
-
-nextdoor_lncrna <- get_neighbours(gtf, lncRNA_lines, PCG_lines, 5000, 1)
 
 
-antisense_pcg_neighbours <- get_neighbours(gtf, transcript_lines[antisense_id], PCG_lines, 5000, 10)
-intergenic_pcg_neighbours <- get_neighbours(gtf, transcript_lines[intergenic_id], PCG_lines, 5000, 10)
-k_pcg_neighbours <- get_neighbours(gtf, transcript_lines[k_id], PCG_lines, 5000, 10)
-# Identify which neighbour pairs are correlated
-setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-source("analyse_neighbours.R")
-a_n_stats <- analyse_neighbours("antisense_neighbours", "/home/harry/Documents/lncRNA_21_10/neighbours/", antisense_pcg_neighbours, logchange, raw_counts, bmean_df=raw_bmean)
-i_n_stats <- analyse_neighbours("intergenic_neighbours", "/home/harry/Documents/lncRNA_21_10/neighbours/", intergenic_pcg_neighbours, logchange, raw_counts, bmean_df=raw_bmean)
-k_n_stats <- analyse_neighbours("k_neighbours", "/home/harry/Documents/lncRNA_21_10/neighbours/", k_pcg_neighbours, logchange, raw_counts, bmean_df=raw_bmean)
-
-DE_a_n <- a_n_stats[[1]]
-# Identify points with the most extreme values
-
-#p<-ggplot(DE_A_N, aes(x=r_val.cor, y=lncRNA_r_val.cor)) +
-#  geom_point() +
-#  lims(x=c(-1,1),y=c(-1,1)) +
-#  theme_minimal() +
-#  coord_fixed() +  
-#  geom_vline(xintercept = 0) + geom_hline(yintercept = 0) 
-#p
 
 
-# Identify which sense/antisense pairs are correlated
-# Iterate through the pairs and extract the corresponding info
-#lncRNA, PCG_id, PCG_transcript, distance (0), ordered_desc
 
 
-sas_df <- annotate_pcg(sas_out)
-sas_stats <- analyse_neighbours("sas", "/home/harry/Documents/lncRNA_21_10/s_as_pairs/", sas_df, logchange, raw_counts, bmean_df=raw_bmean)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# ### PERFORM DE ###
+# 
+# 
+# # Generate logfold change
+# source("repo_deseq.R")
+# deseq_results <- deseq_func(count_directory = count_folder, split_file_path = split_file,
+#                         p_val = 0.05 , min_base_mean = 30 , min_LFC = 1, signif_base_mean = 5000)
+# 
+# 
+# 
+# 
+# setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+# logchange <- deseq_results[[1]]
+# signif_bmean <- deseq_results[[2]]
+# raw_bmean <- deseq_results[[3]]
+# colnames(raw_bmean) <- colnames(logchange)
+# raw_counts <- deseq_results[[4]]
+# 
+# write.csv(logchange,paste(c(prefix,"_lfc.csv"),sep="", collapse=""), row.names = T)
+# # Only generate heatmaps for itra data
+# if(prefix == "itra"){
+#   # Generate clusters and heatmaps
+#   ### GENERATE HEATMAP - Harry Chown ###
+#   # Convert data into a matrix which can be used as input for heatmap
+#   set.seed(2)
+#   gene_names <- logchange[,1]
+#   clust_num <- 30
+#   out<- pheatmap(logchange, kmeans_k = clust_num, scale = "row", 
+#                  cluster_cols = F)
+#   out2<- pheatmap(logchange,
+#                   show_rownames=F, cluster_cols=F, cluster_rows=T, scale="row",
+#                   cex=1, clustering_distance_rows="euclidean", cex=1,
+#                   clustering_distance_cols="euclidean", clustering_method="complete", border_color=FALSE)
+#   cluster_labels <- out$kmeans$cluster
+#   
+#   tiff(file = paste(c(output_dir,"/log_cluster_heatmap.tiff"),sep="", collapse=""),
+#        unit = "in",
+#        res=600,
+#        height = 7,
+#        width = 4.5)
+#   
+#   print(out)
+#   
+#   dev.off()
+#   
+#   tiff(file = paste(c(output_dir,"/log_hierarchical_heatmap.tiff"),sep="", collapse=""),
+#        unit = "in",
+#        res=600,
+#        height = 7,
+#        width = 4.5)
+#   
+#   print(out2)
+#   
+# 
+#   
+#   dev.off()
+#   logchange_w_cluster <-  add_column(logchange, cluster = cluster_labels, .before = 1)
+#   write.csv(logchange_w_cluster, paste(c(output_dir,"/lfc_w_cluster.csv"),sep="", collapse=""), row.names = T)
+#   
+# }
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# # Identify and annotate lncRNA with neighbouring genes
+# source("get_neighbours.R")
+# lncRNA_pcg_neighbours <- get_neighbours(gtf, lncRNA_lines, PCG_lines, 5000, 10)
+# 
+# nextdoor_lncrna <- get_neighbours(gtf, lncRNA_lines, PCG_lines, 5000, 1)
+# 
+# 
+# antisense_pcg_neighbours <- get_neighbours(gtf, transcript_lines[antisense_id], PCG_lines, 5000, 10)
+# intergenic_pcg_neighbours <- get_neighbours(gtf, transcript_lines[intergenic_id], PCG_lines, 5000, 10)
+# k_pcg_neighbours <- get_neighbours(gtf, transcript_lines[k_id], PCG_lines, 5000, 10)
+# # Identify which neighbour pairs are correlated
+# setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+# source("analyse_neighbours.R")
+# a_n_stats <- analyse_neighbours("antisense_neighbours", "/home/harry/Documents/lncRNA_21_10/neighbours/", antisense_pcg_neighbours, logchange, raw_counts, bmean_df=raw_bmean)
+# i_n_stats <- analyse_neighbours("intergenic_neighbours", "/home/harry/Documents/lncRNA_21_10/neighbours/", intergenic_pcg_neighbours, logchange, raw_counts, bmean_df=raw_bmean)
+# k_n_stats <- analyse_neighbours("k_neighbours", "/home/harry/Documents/lncRNA_21_10/neighbours/", k_pcg_neighbours, logchange, raw_counts, bmean_df=raw_bmean)
+# 
+# DE_a_n <- a_n_stats[[1]]
+# # Identify points with the most extreme values
+# 
+# #p<-ggplot(DE_A_N, aes(x=r_val.cor, y=lncRNA_r_val.cor)) +
+# #  geom_point() +
+# #  lims(x=c(-1,1),y=c(-1,1)) +
+# #  theme_minimal() +
+# #  coord_fixed() +  
+# #  geom_vline(xintercept = 0) + geom_hline(yintercept = 0) 
+# #p
+# 
+# 
+# # Identify which sense/antisense pairs are correlated
+# # Iterate through the pairs and extract the corresponding info
+# #lncRNA, PCG_id, PCG_transcript, distance (0), ordered_desc
+# 
+# 
+# sas_df <- annotate_pcg(sas_out)
+# sas_stats <- analyse_neighbours("sas", "/home/harry/Documents/lncRNA_21_10/s_as_pairs/", sas_df, logchange, raw_counts, bmean_df=raw_bmean)
+# 
 
