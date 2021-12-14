@@ -295,7 +295,7 @@ inv_hierarch <- pheatmap(inv_wide_data, show_rownames=F, cluster_cols=F, cluster
                     clustering_method="complete", border_color=FALSE)
 print(km)
 dev.off()
-#print(hierarch)
+print(hierarch)
 dev.off()
 
 ### GENERATE CLUSTER GRAPHS ###
@@ -308,21 +308,35 @@ wide_data$inv_cluster <- inv_km$kmeans$cluster
 wide_data$type <- rep("pcg", nrow(wide_data))
 wide_data$type[grep("MSTRG", wide_data$transcript)] <- "lncrna"
 
+# Generate cluster medians
+medianscores <- as.data.frame(matrix(nrow=length(unique(wide_data$cluster)), ncol=5))
+for(c in 1:length(unique(wide_data$cluster))){
+  medianscores[c, ] <- apply(wide_data[wide_data$cluster==c,1:5] ,2, median)
+}
+medianscores$cluster <- 1:length(unique(wide_data$cluster))
+colnames(medianscores) <- c(0.25, 0.5, 1, 2, 4, "cluster")
+medianscores$transcript <-  rep("Median", nrow(medianscores))
+median_long <- melt(setDT(medianscores), id.vars = c("cluster", "transcript"), variable.name = "condition")
+median_long$condition <- as.numeric(levels(median_long$condition))[median_long$condition]
+
 long_data <- melt(setDT(wide_data), id.vars = c("transcript", "cluster", "inv_cluster", "type"), variable.name = "condition")
 # Set the MIC to numeric format
+
 long_data$condition <- as.numeric(levels(long_data$condition))[long_data$condition]
 
 # Plot clusters
-p <- ggplot(data=long_data, aes(x=condition, y=value, group=transcript, color=type)) +
-  #geom_line()+
-  geom_smooth(aes(group=transcript)) +
-  geom_point() +
-  
-p + facet_wrap(~ cluster)
-
+p <- ggplot(data=long_data, aes(x=condition, y=value, group=transcript)) +
+  geom_line(color="#00BFC4") + 
+  geom_line(data=median_long, aes(x=condition, y=value, group=transcript), color="red") +
+  facet_wrap(~ cluster) +
+  xlab("MIC") + ylab("Normalized Log2Fold Change")
+print(p)
 
 ### CHECK WHETHER THE NEIGHBOURS ARE IN THE SAME CLUSTER ###
-# Generate a new dataframe with cluster columns
+if(file.exists("neighbour_data.csv")){
+  neighbour_lncrna_w_cluster <- read.csv("neighbour_data.csv")
+}else{
+  # Generate a new dataframe with cluster columns
 neighbour_lncrna_w_cluster <- neighbour_lncrna
 neighbour_lncrna_w_cluster$t_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
 neighbour_lncrna_w_cluster$n_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
@@ -349,25 +363,67 @@ for(i in 1:nrow(neighbour_lncrna)){
     neighbour_lncrna_w_cluster$inv_n_clust[i] <- n_data$inv_cluster
   }
   
+}
+write.csv(neighbour_lncrna_w_cluster,"neighbour_data.csv", row.names = FALSE)
+}
+
+if(!file.exists("clustered_neighbours.csv")){
+  same_clusters <- which(neighbour_lncrna_w_cluster$t_clust == neighbour_lncrna_w_cluster$n_clust)
+  same_clust_df <- neighbour_lncrna_w_cluster[same_clusters, ]
+  write.csv(same_clust_df, "clustered_neighbours.csv", row.names = F)
+  inv_clusters <- which(neighbour_lncrna_w_cluster$inv_t_clust == neighbour_lncrna_w_cluster$inv_n_clust)
+  inv_clust_df <- neighbour_lncrna_w_cluster[inv_clusters, ]
+  write.csv(inv_clust_df, "inv_clustered_neighbours.csv", row.names = F)
   
 }
 
 
-same_clusters <- which(neighbour_lncrna_w_cluster$t_clust == neighbour_lncrna_w_cluster$n_clust)
-same_clust_df <- neighbour_lncrna_w_cluster[same_clusters, ]
+### ANALYSE SENSE/ANTISENSE PAIRS ###
+if(file.exists("sas_data.csv")){
+  sas_w_cluster <- read.csv("sas_data.csv")
+}else {
+sas_w_cluster <- sense_antisense_pairs
+sas_w_cluster$t_clust <- rep(NA, nrow(sas_w_cluster))
+sas_w_cluster$n_clust <- rep(NA, nrow(sas_w_cluster))
+sas_w_cluster$inv_t_clust <- rep(NA, nrow(sas_w_cluster))
+sas_w_cluster$inv_n_clust <- rep(NA, nrow(sas_w_cluster))
 
-inv_clusters <- which(neighbour_lncrna_w_cluster$inv_t_clust == neighbour_lncrna_w_cluster$inv_n_clust)
-inv_clust_df <- neighbour_lncrna_w_cluster[inv_clusters, ]
+for(i in 1:nrow(sense_antisense_pairs)){
+  # Extract transcript names
+  t_name <- sense_antisense_pairs$pcg_transcript[i]
+  n_name <- sense_antisense_pairs$antisense_transcript[i]
+  
+  # Extract relevant IDs in wide data
+  t_wide_id <- which(t_name == wide_data$transcript)
+  n_wide_id <- which(n_name == wide_data$transcript)
+  # Check transcript exists in DESEQ results, if so add cluster details
+  if(length(t_wide_id) > 0){
+    t_data <- wide_data[t_wide_id, ]
+    sas_w_cluster$t_clust[i] <- t_data$cluster
+    sas_w_cluster$inv_t_clust[i] <- t_data$inv_cluster
+  }
+  if(length(n_wide_id) > 0){
+    n_data <- wide_data[n_wide_id, ]
+    sas_w_cluster$n_clust[i] <- n_data$cluster
+    sas_w_cluster$inv_n_clust[i] <- n_data$inv_cluster
+  }
+  
+}
+write.csv(sas_w_cluster,"sas_data.csv", row.names = FALSE)
+}
+
+if(!file.exists("clustered_sas.csv")){
+  same_clusters <- which(sas_w_cluster$t_clust == sas_w_cluster$n_clust)
+  same_clust_df <- sas_w_cluster[same_clusters, ]
+  write.csv(same_clust_df, "clustered_sas.csv", row.names = F)
+  inv_clusters <- which(sas_w_cluster$inv_t_clust == sas_w_cluster$inv_n_clust)
+  inv_clust_df <- sas_w_cluster[inv_clusters, ]
+  write.csv(inv_clust_df, "inv_clustered_sas.csv", row.names = F)
+}
 
 
 
-
-
-
-
-
-
-
+### PERFORM STATISTICAL ANALYSES ###
 
 
 
