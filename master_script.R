@@ -12,7 +12,7 @@ library("biomaRt")
 library("DESeq2")
 library(factoextra)
 library(tidyr)
-
+library(mvnormtest)
 library(scales)
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
@@ -112,6 +112,11 @@ for(i in raw_pcg){
 # Extract all lncRNA
 raw_lncrna <- grep("MSTRG", raw_transcripts)
 raw_lncrna <- raw_transcripts[raw_lncrna]
+lncrna_names <- c()
+for(i in raw_lncrna){
+  l_name <- str_match(i, "transcript_id \"(.*?)\"")[1,2]
+  lncrna_names <- c(lncrna_names, l_name)
+}
 
 
 # Extract intergenic
@@ -424,10 +429,122 @@ if(!file.exists("clustered_sas.csv")){
 
 
 ### PERFORM STATISTICAL ANALYSES ###
+# For each gene is there a significant difference in it's expression between drugs affecting ergosterol biosynthetic pathway
+# MICs from 0.5 to 4 were analysed
+#Itra, sim, terb, = ergosterol 
+# Extract all datasets and add a condition column
+itra_lfc <-  all_deseq$itra$lfc
+itra_lfc$condition <- "itra"
+itra_lfc$transcript <- rownames(itra_lfc)
+itra_lfc <- itra_lfc[,-1]
+
+simv_lfc <- all_deseq$simv$lfc
+simv_lfc$condition <- "simv"
+simv_lfc$transcript <- rownames(simv_lfc)
+
+terb_lfc <- all_deseq$terb$lfc
+terb_lfc$condition <- "terb"
+terb_lfc$transcript <- rownames(terb_lfc)
+
+fc_lfc <- all_deseq$`5fc`$lfc
+fc_lfc$condition <- "5fc"
+fc_lfc$transcript <- rownames(fc_lfc)
+
+dodin_lfc <- all_deseq$dodin$lfc
+dodin_lfc$condition <- "dodin"
+dodin_lfc$transcript <- rownames(dodin_lfc)
+
+hyg_lfc <- all_deseq$hyg$lfc
+hyg_lfc$condition <- "hyg"
+hyg_lfc$transcript <- rownames(hyg_lfc)
+
+milt_lfc <- all_deseq$milt$lfc
+milt_lfc$condition <- "milt"
+milt_lfc$transcript <- rownames(milt_lfc)
+
+all_drug_lfc <- rbind(itra_lfc, simv_lfc, terb_lfc, fc_lfc, dodin_lfc, hyg_lfc, milt_lfc)
+
+# Check correlation between each condition
+conditions <- unique(all_drug_lfc$condition)
+# Per transcript, check correlation
+long_results <- c()
+for(transcript in lncrna_names){
+  transcript <- "MSTRG.45.2"
+  transcript_lfc <- all_drug_lfc[all_drug_lfc$transcript == transcript, ]
+  transcript_pcc <- matrix(nrow=length(conditions), ncol=length(conditions))
+  row_count <- 0
+  # Extract condition 1 
+  for(drug_i in conditions){
+    row_count <- row_count + 1
+    drug_i_lfc <- transcript_lfc[transcript_lfc$condition == drug_i, 1:4]
+    # If there is no result for drug i keep values as NA
+    
+    col_count <- 0
+    # Extract condition 2
+    for(drug_j in conditions){
+      col_count <- col_count + 1
+      if(drug_i == drug_j | drug_i_lfc == 0){
+        P <- NA
+        R2 <- NA
+      }else{ 
+        drug_j_lfc <- transcript_lfc[transcript_lfc$condition == drug_j, 1:4]
+        
+        # Perform PCC 
+        cor.res <- cor.test(as.numeric(drug_i_lfc), as.numeric(drug_j_lfc))
+        P <- cor.res$p.value
+        R2 <- cor.res$estimate ** 2
+        stop()
+        }
+      #print(cor(drug_i_lfc, drug_j_lfc, method = c("pearson")))
+      
+    }
+  }
+  
+}
+
+# We would want to adjust the p-values once we have them all
+# This could be done after ALL results for ALL drugs and ALL lncRNA are obtained
+# Or, once ALL results for ALL drugs for a single lncRNA is obtained
+# I'm going to try both and see what happens
+# We can use p.adjust to assess this
 
 
 
 
+
+
+# Extract each lncRNA name for subsetting
+# Subset each lncRNA
+lncrna <- lncrna_names[1]
+itra_res <- itra_lfc[lncrna, ]
+simv_res <- simv_lfc[lncrna, ]
+terb_res <- terb_lfc[lncrna, ]
+fc_res <- fc_lfc[lncrna, ]
+dodin_res <- dodin_lfc[lncrna, ]
+hyg_res <- hyg_lfc[lncrna, ]
+milt_res <- milt_lfc[lncrna, ]
+all_drug_res <- rbind(itra_res, simv_res, terb_res, fc_res, dodin_res, hyg_res, milt_res)
+
+# Subset to remove drugs which do not appear in the data
+sub_drug <- all_drug_res[-which(is.na(all_drug_res$condition)), -ncol(all_drug_res)]
+sub_conditions <- sub_drug$condition
+drug_t <- t(sub_drug)
+colnames(drug_t) <- sub_conditions
+# Perform correlation
+res <- cor(all_drug_res[,-5])
+colnames(res) <- rownames(res) <- sub_conditions
+
+
+# res.man <- manova(. ~ condition, data = erg_drugs)
+# 
+# model <- lm(. ~ condition, data = erg_drugs)
+# cor(model$model$dd, model$fitted.values)
+# 
+# sqrt(summary(model)$r.squared)
+# 
+# erg_drugs <- rbind(itra_lfc, simv_lfc, terb_lfc)#, fc_lfc, dodin_lfc, hyg_lfc, milt_lfc)
+# pca_res <- prcomp(erg_drugs[,-5], scale. = TRUE)
+# autoplot(pca_res, data = erg_drugs, colour = 'condition')
 
 
 
