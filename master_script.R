@@ -333,8 +333,7 @@ if(file.exists("lncnrna_deseq.rds")){
   }
   multiclust_df <- as.data.frame(rbindlist(multiclust_list))
   all_deseq[["multiclust"]] <- multiclust_df
-  multipresence_df <- as.data.frame(rbindlist(multipresence))
-  all_deseq[["multipresence"]] <- multipresence_df
+  all_deseq[["multipresence"]] <- multipresence_list
   saveRDS(all_deseq, file = "lncnrna_deseq.rds")
 }
 
@@ -346,9 +345,7 @@ multi_lncrna <-  all_deseq$multiclust[grep("MSTRG", all_deseq$multiclust$V6),]
 multi_lncrna_clusters <- k_all$kmeans$cluster[grep("MSTRG", all_deseq$multiclust$V6)]
 multidrug_df <- cbind(multi_lncrna, multi_lncrna_clusters)
 # Attempt a Venn Diagram
-
 venn_data <- multidrug_df
-
 # Combine the cluster ID with the transcript ID
 venn_data$x <- paste(venn_data$V6,venn_data$multi_lncrna_clusters, sep="_")
 # Save each transcript per drug
@@ -360,13 +357,13 @@ venn_out <- venn(venn_list)
 venn_overview <- as.data.frame(cbind(rownames(venn_out),venn_out$counts))[-1,]
 colnames(venn_overview) <- c("combination", "count")
 
-upset_p <- upset(fromList(venn_list), sets = names(venn_list), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Cluster Intersections", sets.x.label = "DE lncRNA Per Drug")
+upset_p <- upset(fromList(venn_list), sets = names(venn_list), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Drug")
 
-png("upset.png", width = 2000, height = 1600, pointsize = 20, res = 300)
+png("upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
 print(upset_p)
 dev.off()
 
-### PERFORM CLUSTERING OF ITRA DATA###
+### PERFORM CLUSTERING OF ITRA DATA ###
 itra_data <- all_deseq$itra
 itra_lfc <- itra_data$lfc
 # Scale each transcript relative to itself
