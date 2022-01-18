@@ -14,6 +14,10 @@ library(factoextra)
 library(tidyr)
 library(mvnormtest)
 library(scales)
+library(data.table)
+library(venn)
+library(UpSetR)
+
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
 #source("cluster_deseq.R")
@@ -64,7 +68,7 @@ getdeseq <- function(indata, countsdir){
   max_sqrd_lfc <- apply(sqrd_lfc_matrix, 1, max)
   # Build dataframe
   best_dataframe <- data.frame(pval=min_pval, basemean=max_basemean, sqrdlfc=max_sqrd_lfc)
-  norm_lfc_matrix = t(scale(t(lfc_matrix)))
+  norm_lfc_matrix <-  t(scale(t(lfc_matrix)))
   # Store results in a list
   output <- list("lfc"=lfc_matrix, "pval"=pval_matrix, "basemean"=basemean_matrix, "sqrdlfc"=sqrd_lfc_matrix, "normlfc"=norm_lfc_matrix)
   # Filter
@@ -73,8 +77,6 @@ getdeseq <- function(indata, countsdir){
   keep_rownames <- rownames(lfc_matrix)[keep_index]
   for(i in 1:length(output)){
     dm <- output[[i]]
-    print(nrow(dm))
-    print(max(keep_index))
     filtered_dm <- dm[keep_index, ]
     rownames(filtered_dm) <- keep_rownames
     output[[i]] <- filtered_dm
@@ -208,7 +210,6 @@ for(r in bedtools_results){
     intersection = a_end - s_start
   }else if(a_start < s_start & a_start < s_end & s_end > a_start & s_end > a_end){
     intersection = s_size
-    print(s_size)
   }else if(a_start > s_start & a_start < s_end & a_end > s_start & a_end < s_end){
     intersection = a_size
 
@@ -306,27 +307,64 @@ if(file.exists("lncnrna_deseq.rds")){
 } else{
   data_prefixes <- c()
   all_deseq <- list()
-  counter <- 1
+  multiclust_list <- list()
+  multipresence_list <- list()
   for(split_file in all_split_files){
     prefix <- str_split(split_file, "_")[[1]][1]
     split_file_path <- paste(c(inputdir, "/split_files/", split_file), sep="", collapse="")
-    print(split_file_path)
     count_data <- read.csv(split_file_path, header=T)
     deseq_data <- getdeseq(count_data, count_dir)
-    all_deseq[[counter]] <- deseq_data
-    names(all_deseq)[counter] <- prefix
-    counter <- counter + 1
+    write.csv(deseq_data$lfc,paste(c(prefix, "_lfc_data.csv"), sep="", collapse=""), row.names = TRUE)
+    write.csv(deseq_data$normlfc,paste(c(prefix, "_normlfc_data.csv"), sep="", collapse=""), row.names = TRUE)
+    # Add the prefix to the normalised LFC ready for multidrug clustering
+    if(prefix %in% c("5fc","dodin","hyg","itra","milt","simv","terb")){
+      norm_df <- deseq_data$normlfc
+      # Remove 0.25 x MIC from itra
+      if(prefix == "itra"){
+        norm_df <- norm_df[,-1]
+      }
+      multiclust <- as.data.frame(cbind(norm_df, rep(prefix, nrow(norm_df)), rownames(norm_df)))
+      multiclust_list[[prefix]] <- multiclust
+    }
+    # Store all LFC results
+    multipresence <- as.data.frame(cbind(deseq_data$lfc, rep(prefix, nrow(deseq_data$lfc)), rownames(deseq_data$lfc)))
+    multipresence_list[[prefix]] <- multipresence
+    all_deseq[[prefix]] <- deseq_data
   }
+  multiclust_df <- as.data.frame(rbindlist(multiclust_list))
+  all_deseq[["multiclust"]] <- multiclust_df
+  multipresence_df <- as.data.frame(rbindlist(multipresence))
+  all_deseq[["multipresence"]] <- multipresence_df
   saveRDS(all_deseq, file = "lncnrna_deseq.rds")
 }
 
-### EXTRACT AND SAVE LFCs FOR ALL DATA ###
-drug_names <- c("5fc","dodin","hyg","itra","milt","simv","terb")
-for(i in 1:length(all_deseq)){
-  i_name <- names(all_deseq[i])
-  itra_data <- all_deseq[]
-  itra_lfc <- itra_data$lfc
+### PERFORM CLUSTERING OF ALL LNCRNA DATA ###
+k_all <- pheatmap(all_deseq$multiclust[,1:4], kmeans_k = 20,
+               cluster_cols = F, cluster_rows = T)
+# Extract only lncRNA
+multi_lncrna <-  all_deseq$multiclust[grep("MSTRG", all_deseq$multiclust$V6),]
+multi_lncrna_clusters <- k_all$kmeans$cluster[grep("MSTRG", all_deseq$multiclust$V6)]
+multidrug_df <- cbind(multi_lncrna, multi_lncrna_clusters)
+# Attempt a Venn Diagram
+
+venn_data <- multidrug_df
+
+# Combine the cluster ID with the transcript ID
+venn_data$x <- paste(venn_data$V6,venn_data$multi_lncrna_clusters, sep="_")
+# Save each transcript per drug
+venn_list <- list()
+for(i in unique(venn_data$V5)){
+  venn_list[[i]] <- venn_data$x[venn_data$V5 == i]
 }
+venn_out <- venn(venn_list)
+venn_overview <- as.data.frame(cbind(rownames(venn_out),venn_out$counts))[-1,]
+colnames(venn_overview) <- c("combination", "count")
+
+upset_p <- upset(fromList(venn_list), sets = names(venn_list), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Cluster Intersections", sets.x.label = "DE lncRNA Per Drug")
+
+png("upset.png", width = 2000, height = 1600, pointsize = 20, res = 300)
+print(upset_p)
+dev.off()
 
 ### PERFORM CLUSTERING OF ITRA DATA###
 itra_data <- all_deseq$itra
@@ -351,8 +389,10 @@ inv_hierarch <- pheatmap(inv_wide_data, show_rownames=F, cluster_cols=F, cluster
                     clustering_distance_rows="euclidean",
                     cex=1, clustering_distance_cols="euclidean", 
                     clustering_method="complete", border_color=FALSE)
+png("k_means_itra.png", width = 1600, height = 2000, pointsize = 20, res = 300)
 print(km)
 dev.off()
+png("hierarch_itra.png", width = 1600, height = 2000, pointsize = 20, res = 300)
 print(hierarch)
 dev.off()
 
@@ -386,9 +426,13 @@ long_data$condition <- as.numeric(levels(long_data$condition))[long_data$conditi
 p <- ggplot(data=long_data, aes(x=condition, y=value, group=transcript)) +
   geom_line(color="#00BFC4") + 
   geom_line(data=median_long, aes(x=condition, y=value, group=transcript), color="red") +
+  geom_hline(yintercept=0) +
   facet_wrap(~ cluster) +
   xlab("MIC") + ylab("Normalized Log2Fold Change")
+
+png("cluster.png", width = 2000, height = 2000, pointsize = 20, res = 300)
 print(p)
+dev.off()
 
 ### CHECK WHETHER THE NEIGHBOURS ARE IN THE SAME CLUSTER ###
 if(file.exists("neighbour_data.csv")){
