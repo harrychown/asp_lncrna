@@ -185,11 +185,15 @@ a_id <- c()
 s_id <- c()
 i_bp <- c()
 i_percent <- c()
+s_t <- c()
 for(r in bedtools_results){
   split <- strsplit(r, "\t")
   antisense_desc <-  split[[1]][10]
   antisense <- strsplit(antisense_desc, "\"")[[1]][2]
   sense <-  split[[1]][14]
+  sense_desc <- split[[1]][20]
+  transcript <- strsplit(sense_desc, "\"")[[1]][2]
+  
   a_start <- as.integer(split[[1]][2])
   a_end <- as.integer(split[[1]][3])
   a_size = a_end - a_start
@@ -208,18 +212,20 @@ for(r in bedtools_results){
     intersection = a_size
 
   }
-  
+
   percentage_i <- (intersection / a_size) * 100 
   i_percent <- c(i_percent, percentage_i)
   i_bp <- c(i_bp, intersection)
   a_id <- c(a_id, antisense)
   s_id <- c(s_id, sense)
+  s_t <- c(s_t, transcript)
 }
-antisense_overlap <- do.call(rbind, Map(data.frame, antisense = a_id,
-                                    sense = s_id, intersection_bp = i_bp,
-                                    gene_percent_intersection = i_percent))
+sas_out <- do.call(rbind, Map(data.frame, pcg_transcript = s_t,
+                                    pcg_gene = s_id, antisense_transcript = a_id,
+                                    intersection_bp = i_bp, gene_percent_intersection = i_percent,
+                                    lncrna_type = rep("antisense", length(s_id))))
 # Count how many have multiple overlaps
-overlap_freq <- as.data.frame(table(antisense_overlap$antisense))
+overlap_freq <- as.data.frame(table(sas_out$antisense))
 overlap_overview <- as.data.frame(table(overlap_freq$Freq))
                                    
 
@@ -285,13 +291,7 @@ for(gene in neighbour_lncrna$pcg_gene){
 neighbour_lncrna <-  cbind(neighbour_lncrna, gene_descriptions)
 
 
-### MAKE A SIMILAR DATAFRAME FOR SENSE/ANTISENSE PAIRS ###
-sas_out <- do.call(rbind, Map(data.frame, pcg_transcript = sense_names,
-                                    pcg_gene = sense_ids,
-                                    antisense_transcript = antisense_names,
-                                    distance = rep(0, length(sense_names)),
-                                    sqrd_distance = rep(0, length(sense_names)),
-                                    lncrna_type = rep("antisense", length(sense_names))))
+### ADD GENE DESCRIPTIONS TO S/AS DATA ###
 gene_descriptions <- c()
 for(gene in sas_out$pcg_gene){
   desc <- gene_attr[gene]
@@ -331,9 +331,9 @@ inv_wide_data <- norm_wide_data
 inv_wide_data[lncrna_id, ] <- inv_wide_data[lncrna_id, ] * -1
 # Perform clustering
 set.seed(0)
-km <- pheatmap(norm_wide_data, kmeans_k = 20, scale = "row",
+km <- pheatmap(norm_wide_data, kmeans_k = 20,
                cluster_cols = F, cluster_rows = T)
-inv_km <- pheatmap(inv_wide_data, kmeans_k = 20, scale = "row",
+inv_km <- pheatmap(inv_wide_data, kmeans_k = 20, ,
                cluster_cols = F, cluster_rows = T)
 hierarch <- pheatmap(norm_wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
                 clustering_distance_rows="euclidean",
