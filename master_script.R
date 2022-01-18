@@ -343,7 +343,7 @@ for(i in names(all_deseq$multipresence)){
   condition <- i
   all_lncrna[[condition]] <- rownames(all_deseq$multipresence[[i]])[grep("MSTRG", rownames(all_deseq$multipresence[[i]]))]
 }
-upset_p <- upset(fromList(all_lncrna), sets = names(all_lncrna), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Drug")
+upset_p <- upset(fromList(all_lncrna), sets = names(all_lncrna), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Condition")
 
 png("present_upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
 print(upset_p)
@@ -369,7 +369,7 @@ venn_out <- venn(venn_list)
 venn_overview <- as.data.frame(cbind(rownames(venn_out),venn_out$counts))[-1,]
 colnames(venn_overview) <- c("combination", "count")
 
-upset_p <- upset(fromList(venn_list), sets = names(venn_list), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Drug")
+upset_p <- upset(fromList(venn_list), sets = names(venn_list), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Condition")
 
 png("upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
 print(upset_p)
