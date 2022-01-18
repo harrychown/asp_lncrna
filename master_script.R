@@ -64,8 +64,9 @@ getdeseq <- function(indata, countsdir){
   max_sqrd_lfc <- apply(sqrd_lfc_matrix, 1, max)
   # Build dataframe
   best_dataframe <- data.frame(pval=min_pval, basemean=max_basemean, sqrdlfc=max_sqrd_lfc)
+  norm_lfc_matrix = t(scale(t(lfc_matrix)))
   # Store results in a list
-  output <- list("lfc"=lfc_matrix, "pval"=pval_matrix, "basemean"=basemean_matrix, "sqrdlfc"=sqrd_lfc_matrix)
+  output <- list("lfc"=lfc_matrix, "pval"=pval_matrix, "basemean"=basemean_matrix, "sqrdlfc"=sqrd_lfc_matrix, "normlfc"=norm_lfc_matrix)
   # Filter
   keep_index <- which((best_dataframe$basemean>30&best_dataframe$pval<0.05&best_dataframe$sqrdlfc>1)|best_dataframe$basemean>5000)
   keep_index <- keep_index[! keep_index %in% which(is.na(best_dataframe))]
@@ -319,6 +320,13 @@ if(file.exists("lncnrna_deseq.rds")){
   saveRDS(all_deseq, file = "lncnrna_deseq.rds")
 }
 
+### EXTRACT AND SAVE LFCs FOR ALL DATA ###
+drug_names <- c("5fc","dodin","hyg","itra","milt","simv","terb")
+for(i in 1:length(all_deseq)){
+  i_name <- names(all_deseq[i])
+  itra_data <- all_deseq[]
+  itra_lfc <- itra_data$lfc
+}
 
 ### PERFORM CLUSTERING OF ITRA DATA###
 itra_data <- all_deseq$itra
@@ -333,7 +341,7 @@ inv_wide_data[lncrna_id, ] <- inv_wide_data[lncrna_id, ] * -1
 set.seed(0)
 km <- pheatmap(norm_wide_data, kmeans_k = 20,
                cluster_cols = F, cluster_rows = T)
-inv_km <- pheatmap(inv_wide_data, kmeans_k = 20, ,
+inv_km <- pheatmap(inv_wide_data, kmeans_k = 20,
                cluster_cols = F, cluster_rows = T)
 hierarch <- pheatmap(norm_wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
                 clustering_distance_rows="euclidean",
