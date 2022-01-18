@@ -337,7 +337,19 @@ if(file.exists("lncnrna_deseq.rds")){
   saveRDS(all_deseq, file = "lncnrna_deseq.rds")
 }
 
-### PERFORM CLUSTERING OF ALL LNCRNA DATA ###
+### PERFORM PRESENCE ANALYSIS OF ALL LNCRNA
+all_lncrna <- list()
+for(i in names(all_deseq$multipresence)){
+  condition <- i
+  all_lncrna[[condition]] <- rownames(all_deseq$multipresence[[i]])[grep("MSTRG", rownames(all_deseq$multipresence[[i]]))]
+}
+upset_p <- upset(fromList(all_lncrna), sets = names(all_lncrna), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Drug")
+
+png("present_upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
+print(upset_p)
+dev.off()
+
+### PERFORM CLUSTERING OF MULTIDRUG LNCRNA DATA ###
 k_all <- pheatmap(all_deseq$multiclust[,1:4], kmeans_k = 20,
                cluster_cols = F, cluster_rows = T)
 # Extract only lncRNA
