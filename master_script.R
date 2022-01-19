@@ -19,7 +19,7 @@ library(venn)
 library(UpSetR)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-
+set.seed(0)
 #source("cluster_deseq.R")
 source("get_neighbours.R")
 source("analyse_neighbours.R")
@@ -349,7 +349,7 @@ upset_p <- upset(fromList(all_lncrna), sets = names(all_lncrna), point.size = 3.
 png("present_upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
 print(upset_p)
 dev.off()
-
+set.seed(0)
 ### PERFORM CLUSTERING OF MULTIDRUG LNCRNA DATA ###
 k_all <- pheatmap(all_deseq$multiclust[,1:4], kmeans_k = 20,
                cluster_cols = F, cluster_rows = T)
@@ -384,7 +384,6 @@ MULTIlong_data <- melt(setDT(MULTIwide_data), id.vars = c("transcript", "cluster
 
 # Set the MIC to numeric format
 MULTIlong_data$condition <- gsub("X", "", MULTIlong_data$condition) 
-#MULTIlong_data$condition <- as.numeric(levels(MULTIlong_data$condition))[MULTIlong_data$condition]
 
 # Plot clusters
 p <- ggplot(data=MULTIlong_data, aes(x=condition, y=value, group=transcript)) +
@@ -427,13 +426,17 @@ x1 <- x1[ !duplicated(x1) ]
 # Generate an empty matrix for each combination
 cluster_frequency <- matrix(nrow = length(venn_overview$combination), ncol = 20, data = 0)
 exact_cluster_frequency <- matrix(nrow = length(venn_overview$combination), ncol = 20, data = 0)
+exact_combo_list <- list()
+combo_transcript_list <- list()
 for(combo_i in 1:length(venn_overview$combination)){
   combo <- venn_overview$combination[combo_i]
+  single_combo_list <- list()
   split_combo <- str_split(combo, ":")
   combo_binary <- upset_p$New_data[split_combo[[1]]]
   # Compounding value transcripts
   combo_transcripts <- x1[(rowSums(combo_binary) == ncol(combo_binary))]
   freq_table <- table(unlist(lapply(combo_transcripts, function(x) as.numeric(str_split(x, "_")[[1]][2]))))
+  
   cluster_ids <- names(freq_table)
   for(cluster_i in 1:length(cluster_ids)){
     cluster_frequency[combo_i, as.numeric(cluster_ids[cluster_i])] <- as.numeric(freq_table[cluster_i])
@@ -443,11 +446,20 @@ for(combo_i in 1:length(venn_overview$combination)){
   all_transcripts <- x1[(rowSums(upset_p$New_data) == ncol(combo_binary))]
   exact_transcripts <- combo_transcripts[combo_transcripts %in% all_transcripts]
   exfreq_table <- table(unlist(lapply(exact_transcripts, function(x) as.numeric(str_split(x, "_")[[1]][2]))))
+  exfreq_raw_cluster <- unlist(lapply(exact_transcripts, function(x) as.numeric(str_split(x, "_")[[1]][2])))
+  exfreq_raw_name <- unlist(lapply(exact_transcripts, function(x) str_split(x, "_")[[1]][1]))
   excluster_ids <- names(exfreq_table)
+
   for(cluster_i in 1:length(excluster_ids)){
+    cluster_transcripts <- exfreq_raw_name[which(exfreq_raw_cluster == excluster_ids[cluster_i])]
+    single_combo_list[as.character(excluster_ids[cluster_i])] <- list(cluster_transcripts)
     exact_cluster_frequency[combo_i, as.numeric(excluster_ids[cluster_i])] <- as.numeric(exfreq_table[cluster_i])
+    
   }
-  
+  if(length(single_combo_list)>0){
+    combo_transcript_list[combo] <- list(single_combo_list)
+  }
+
 }
 cluster_freq_df <- as.data.frame(cluster_frequency, row.names = venn_overview$combination)
 colnames(cluster_freq_df) <- as.character(c(1:20))
@@ -457,6 +469,8 @@ excluster_freq_df <- as.data.frame(exact_cluster_frequency, row.names = venn_ove
 colnames(excluster_freq_df) <- as.character(c(1:20))
 excluster_freq_df$total <- rowSums(excluster_freq_df)
 
+# Save transcript data
+saveRDS(combo_transcript_list, file = "multidrug_clustered_transcripts.rds")
 
 # Save cluster frequency matrix
 write.csv(cluster_freq_df, "multidrug_cluster_frequency.csv")
