@@ -343,6 +343,7 @@ for(i in names(all_deseq$multipresence)){
   condition <- i
   all_lncrna[[condition]] <- rownames(all_deseq$multipresence[[i]])[grep("MSTRG", rownames(all_deseq$multipresence[[i]]))]
 }
+
 upset_p <- upset(fromList(all_lncrna), sets = names(all_lncrna), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Condition")
 
 png("present_upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
@@ -356,6 +357,50 @@ k_all <- pheatmap(all_deseq$multiclust[,1:4], kmeans_k = 20,
 multi_lncrna <-  all_deseq$multiclust[grep("MSTRG", all_deseq$multiclust$V6),]
 multi_lncrna_clusters <- k_all$kmeans$cluster[grep("MSTRG", all_deseq$multiclust$V6)]
 multidrug_df <- cbind(multi_lncrna, multi_lncrna_clusters)
+
+
+### GENERATE CLUSTER GRAPHS ###
+# Convert wide data to long
+MULTIwide_data <-  as.data.frame(multidrug_df[,1:4])
+colnames(MULTIwide_data) <- c(0.5, 1, 2, 4)
+MULTIwide_data <- data.frame(apply(MULTIwide_data, 2, function(x) as.numeric(as.character(x))))
+# Add transcript ID, cluster number and transcript type (lncrna/pcg)
+MULTIwide_data$transcript <- paste(multidrug_df$V5, multidrug_df$V6,  sep="_")
+MULTIwide_data$cluster <- multi_lncrna_clusters
+MULTIwide_data$type <- rep("lncrna", nrow(MULTIwide_data))
+
+# Generate cluster medians
+MULTImedianscores <- as.data.frame(matrix(nrow=length(unique(MULTIwide_data$cluster)), ncol=4))
+for(c in 1:length(unique(MULTIwide_data$cluster))){
+  MULTImedianscores[c, ] <- apply(MULTIwide_data[MULTIwide_data$cluster==c,1:4] ,2, median)
+}
+MULTImedianscores$cluster <- 1:length(unique(MULTIwide_data$cluster))
+colnames(MULTImedianscores) <- c(0.5, 1, 2, 4, "cluster")
+MULTImedianscores$transcript <-  rep("Median", nrow(MULTImedianscores))
+MULTImedian_long <- melt(setDT(MULTImedianscores), id.vars = c("cluster", "transcript"), variable.name = "condition")
+
+MULTIlong_data <- melt(setDT(MULTIwide_data), id.vars = c("transcript", "cluster", "type"), variable.name = "condition")
+
+
+# Set the MIC to numeric format
+MULTIlong_data$condition <- gsub("X", "", MULTIlong_data$condition) 
+#MULTIlong_data$condition <- as.numeric(levels(MULTIlong_data$condition))[MULTIlong_data$condition]
+
+# Plot clusters
+p <- ggplot(data=MULTIlong_data, aes(x=condition, y=value, group=transcript)) +
+  geom_line(color="#00BFC4") + 
+  geom_line(data=MULTImedian_long, aes(x=condition, y=value, group=transcript), color="red") +
+  geom_hline(yintercept=0) +
+  facet_wrap(~ cluster) +
+  xlab("MIC") + ylab("Normalized Log2Fold Change")
+
+png("multidrug_cluster.png", width = 2000, height = 2000, pointsize = 20, res = 300)
+print(p)
+dev.off()
+
+
+
+
 # Attempt a Venn Diagram
 venn_data <- multidrug_df
 # Combine the cluster ID with the transcript ID
@@ -369,8 +414,53 @@ venn_out <- venn(venn_list)
 venn_overview <- as.data.frame(cbind(rownames(venn_out),venn_out$counts))[-1,]
 colnames(venn_overview) <- c("combination", "count")
 
-upset_p <- upset(fromList(venn_list), sets = names(venn_list), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Condition")
+upset_p <- upset(fromList(venn_list), sets = names(venn_list),
+                 queries = list(list(query = intersects, params = list("simv", "terb"), color = "orange", active = T),
+                                list(query = intersects, params = list("simv", "terb", "milt"), color = "green", active = T)),
+                 point.size = 3.5, line.size = 2, 
+                 order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), 
+                 mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Condition")
 
+# Look at what is shared between the drugs
+x1 <- unlist(venn_list, use.names = FALSE)
+x1 <- x1[ !duplicated(x1) ]
+# Generate an empty matrix for each combination
+cluster_frequency <- matrix(nrow = length(venn_overview$combination), ncol = 20, data = 0)
+exact_cluster_frequency <- matrix(nrow = length(venn_overview$combination), ncol = 20, data = 0)
+for(combo_i in 1:length(venn_overview$combination)){
+  combo <- venn_overview$combination[combo_i]
+  split_combo <- str_split(combo, ":")
+  combo_binary <- upset_p$New_data[split_combo[[1]]]
+  # Compounding value transcripts
+  combo_transcripts <- x1[(rowSums(combo_binary) == ncol(combo_binary))]
+  freq_table <- table(unlist(lapply(combo_transcripts, function(x) as.numeric(str_split(x, "_")[[1]][2]))))
+  cluster_ids <- names(freq_table)
+  for(cluster_i in 1:length(cluster_ids)){
+    cluster_frequency[combo_i, as.numeric(cluster_ids[cluster_i])] <- as.numeric(freq_table[cluster_i])
+  }
+  
+  # Exact value transcripts
+  all_transcripts <- x1[(rowSums(upset_p$New_data) == ncol(combo_binary))]
+  exact_transcripts <- combo_transcripts[combo_transcripts %in% all_transcripts]
+  exfreq_table <- table(unlist(lapply(exact_transcripts, function(x) as.numeric(str_split(x, "_")[[1]][2]))))
+  excluster_ids <- names(exfreq_table)
+  for(cluster_i in 1:length(excluster_ids)){
+    exact_cluster_frequency[combo_i, as.numeric(excluster_ids[cluster_i])] <- as.numeric(exfreq_table[cluster_i])
+  }
+  
+}
+cluster_freq_df <- as.data.frame(cluster_frequency, row.names = venn_overview$combination)
+colnames(cluster_freq_df) <- as.character(c(1:20))
+cluster_freq_df$total <- rowSums(cluster_freq_df)
+
+excluster_freq_df <- as.data.frame(exact_cluster_frequency, row.names = venn_overview$combination)
+colnames(excluster_freq_df) <- as.character(c(1:20))
+excluster_freq_df$total <- rowSums(excluster_freq_df)
+
+
+# Save cluster frequency matrix
+write.csv(cluster_freq_df, "multidrug_cluster_frequency.csv")
+write.csv(excluster_freq_df, "multidrug_exact_cluster_frequency.csv")
 png("upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
 print(upset_p)
 dev.off()
