@@ -71,6 +71,7 @@ getdeseq <- function(indata, countsdir){
   norm_lfc_matrix <-  t(scale(t(lfc_matrix)))
   # Store results in a list
   output <- list("lfc"=lfc_matrix, "pval"=pval_matrix, "basemean"=basemean_matrix, "sqrdlfc"=sqrd_lfc_matrix, "normlfc"=norm_lfc_matrix)
+  all_basemean <- output$basemean
   # Filter
   keep_index <- which((best_dataframe$basemean>30&best_dataframe$pval<0.05&best_dataframe$sqrdlfc>1)|best_dataframe$basemean>5000)
   keep_index <- keep_index[! keep_index %in% which(is.na(best_dataframe))]
@@ -81,6 +82,8 @@ getdeseq <- function(indata, countsdir){
     rownames(filtered_dm) <- keep_rownames
     output[[i]] <- filtered_dm
   }
+
+  output[["all_basemean"]] <- all_basemean
   
   return(output)
   
@@ -309,6 +312,7 @@ if(file.exists("lncnrna_deseq.rds")){
   all_deseq <- list()
   multiclust_list <- list()
   multipresence_list <- list()
+  bmean_list <- list()
   for(split_file in all_split_files){
     prefix <- str_split(split_file, "_")[[1]][1]
     split_file_path <- paste(c(inputdir, "/split_files/", split_file), sep="", collapse="")
@@ -316,6 +320,12 @@ if(file.exists("lncnrna_deseq.rds")){
     deseq_data <- getdeseq(count_data, count_dir)
     write.csv(deseq_data$lfc,paste(c(prefix, "_lfc_data.csv"), sep="", collapse=""), row.names = TRUE)
     write.csv(deseq_data$normlfc,paste(c(prefix, "_normlfc_data.csv"), sep="", collapse=""), row.names = TRUE)
+    # Save all basemeans for each condition
+    bmean_raw <- deseq_data$all_basemean
+    bmean_df <- as.data.frame(cbind(bmean_raw[,1],rownames(bmean_raw), rep(prefix, nrow(bmean_raw))))
+    write.csv(bmean_df,paste(c(prefix, "_basemean_data.csv"), sep="", collapse=""), row.names = TRUE)
+    bmean_list[[prefix]] <- bmean_df
+    
     # Add the prefix to the normalised LFC ready for multidrug clustering
     if(prefix %in% c("5fc","dodin","hyg","itra","milt","simv","terb")){
       norm_df <- deseq_data$normlfc
@@ -331,25 +341,56 @@ if(file.exists("lncnrna_deseq.rds")){
     multipresence_list[[prefix]] <- multipresence
     all_deseq[[prefix]] <- deseq_data
   }
+  multibmean_df <- as.data.frame(rbindlist(bmean_list))
   multiclust_df <- as.data.frame(rbindlist(multiclust_list))
+  all_deseq[["multibmean"]] <- multibmean_df
   all_deseq[["multiclust"]] <- multiclust_df
   all_deseq[["multipresence"]] <- multipresence_list
   saveRDS(all_deseq, file = "lncnrna_deseq.rds")
 }
 
-### PERFORM PRESENCE ANALYSIS OF ALL LNCRNA
+### PERFORM DE ANALYSIS OF ALL LNCRNA
 all_lncrna <- list()
 for(i in names(all_deseq$multipresence)){
   condition <- i
   all_lncrna[[condition]] <- rownames(all_deseq$multipresence[[i]])[grep("MSTRG", rownames(all_deseq$multipresence[[i]]))]
 }
 
-upset_p <- upset(fromList(all_lncrna), sets = names(all_lncrna), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Condition")
+upset_de <- upset(fromList(all_lncrna), sets = names(all_lncrna), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Condition")
 
-png("present_upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
-print(upset_p)
+png("de_upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
+print(upset_de)
 dev.off()
 set.seed(0)
+
+
+
+### PERFORM PRESENCE ANALYSIS OF ALL LNCRNA
+present_lncrna <- list()
+lncrna_bmean <- all_deseq$multibmean[grep("MSTRG", (all_deseq$multibmean$V2)), ]
+for(i in unique(lncrna_bmean$V3)){
+    condition_bmean <- lncrna_bmean[lncrna_bmean$V3 == i,]
+  condition_bmean$V1 <- as.numeric(condition_bmean$V1)
+  condition_present <- condition_bmean[condition_bmean$V1>30,]
+  present_lncrna[[i]] <- condition_present[,2]
+}
+upset_present <- upset(fromList(present_lncrna), sets = names(present_lncrna), point.size = 3.5, line.size = 2, order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), mainbar.y.label = "Number of lncRNA", sets.x.label = "Transcribed lncRNA Per Condition")
+
+# Look at what lncRNA are present between conditions
+up_present_lncrna <- unlist(present_lncrna, use.names = FALSE)
+up_present_lncrna <- up_present_lncrna[ !duplicated(up_present_lncrna) ]
+rownames(upset_present$New_data) <- up_present_lncrna
+
+png("present_upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
+print(upset_present)
+dev.off()
+
+
+
+
+
+
+
 ### PERFORM CLUSTERING OF MULTIDRUG LNCRNA DATA ###
 k_all <- pheatmap(all_deseq$multiclust[,1:4], kmeans_k = 20,
                cluster_cols = F, cluster_rows = T)
@@ -414,8 +455,8 @@ venn_overview <- as.data.frame(cbind(rownames(venn_out),venn_out$counts))[-1,]
 colnames(venn_overview) <- c("combination", "count")
 
 upset_p <- upset(fromList(venn_list), sets = names(venn_list),
-                 queries = list(list(query = intersects, params = list("simv", "terb"), color = "orange", active = T),
-                                list(query = intersects, params = list("simv", "terb", "milt"), color = "green", active = T)),
+                 #queries = list(list(query = intersects, params = list("simv", "terb"), color = "orange", active = T),
+                 #               list(query = intersects, params = list("simv", "terb", "milt"), color = "green", active = T)),
                  point.size = 3.5, line.size = 2, 
                  order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), 
                  mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Condition")
@@ -589,7 +630,9 @@ if(!file.exists("clustered_neighbours.csv")){
   inv_clusters <- which(neighbour_lncrna_w_cluster$inv_t_clust == neighbour_lncrna_w_cluster$inv_n_clust)
   inv_clust_df <- neighbour_lncrna_w_cluster[inv_clusters, ]
   write.csv(inv_clust_df, "inv_clustered_neighbours.csv", row.names = F)
-  
+}else{
+  same_neigh_cluster_df <- read.csv("clustered_neighbours.csv")
+  inv_neigh_cluster_df <- read.csv("inv_clustered_neighbours.csv")
 }
 
 
@@ -634,17 +677,47 @@ if(!file.exists("clustered_sas.csv")){
   inv_clusters <- which(sas_w_cluster$inv_t_clust == sas_w_cluster$inv_n_clust)
   inv_clust_df <- sas_w_cluster[inv_clusters, ]
   write.csv(inv_clust_df, "inv_clustered_sas.csv", row.names = F)
+}else{
+  same_sas_cluster_df <- read.csv("clustered_sas.csv")
+  inv_sas_cluster_df <- read.csv("inv_clustered_sas.csv")
 }
 
 
 
+### CHECK IF LNCRNA OF INTEREST ARE PRESENT IN CLUSTERS OR CONDITIONS ###
+add_presence <- function(input_cluster_df, input_matrix){
+  condition_combinations <- c()
+condition_numbers <- c()
+
+for(lncrna in input_cluster_df[,3]){
+  if(lncrna %in% rownames(input_matrix)){
+    lncrna_presence <- input_matrix[lncrna,]
+    combo <- paste(colnames(lncrna_presence)[which(lncrna_presence == 1)], collapse=":")
+    number_of_conditions <- unname(rowSums(lncrna_presence))
+
+  }else{
+    combo <- 0
+    number_of_conditions <- 0
+     }
+ condition_combinations <- c(condition_combinations, combo)
+  condition_numbers <- c(condition_numbers, number_of_conditions)
+}
+output_cluster_df <- cbind(input_cluster_df, condition_numbers, condition_combinations)
+return(output_cluster_df)
+}
 
 
 
+present_same_neigh_df <- add_presence(same_neigh_cluster_df, upset_present$New_data)
+present_inv_neigh_df <- add_presence(inv_neigh_cluster_df, upset_present$New_data)
 
+present_same_sas_df <- add_presence(same_sas_cluster_df, upset_present$New_data)
+present_inv_sas_df <- add_presence(inv_sas_cluster_df, upset_present$New_data)
 
-
-
+write.csv(present_same_neigh_df, "clustered_neighbours.csv", row.names = F)
+write.csv(present_inv_neigh_df, "inv_clustered_neighbours.csv", row.names = F)
+write.csv(present_same_sas_df, "clustered_sas.csv", row.names = F)
+write.csv(present_inv_sas_df, "inv_clustered_sas.csv", row.names = F)
 
 # 
 # 
