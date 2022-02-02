@@ -17,12 +17,13 @@ library(scales)
 library(data.table)
 library(venn)
 library(UpSetR)
+library(wrapr)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 set.seed(0)
 #source("cluster_deseq.R")
-source("get_neighbours.R")
-source("analyse_neighbours.R")
+#source("get_neighbours.R")
+#source("analyse_neighbours.R")
 
 ### DESEQ2 FOR CONDITIONAL DATA ###
 getdeseq <- function(indata, countsdir){
@@ -533,6 +534,40 @@ inv_wide_data[lncrna_id, ] <- inv_wide_data[lncrna_id, ] * -1
 set.seed(0)
 km <- pheatmap(norm_wide_data, kmeans_k = 20,
                cluster_cols = F, cluster_rows = T)
+
+new_labels <- sort(cutree(km$tree_row, h=1))
+km_names <- names(km$kmeans$cluster)
+
+new_cluster <- c()
+for(i in km$kmeans$cluster){
+  label <- new_labels[which(names(new_labels) == i)]
+  new_cluster <- c(new_cluster, label)
+}
+names(new_cluster) <- km_names
+cluster_table <- table(new_cluster)
+# Update the centroid values for input back into pheatmap
+new_centers <- matrix(data = NA, nrow = length(unique(new_labels)), ncol=ncol(km$kmeans$centers))
+for(i in unique(new_labels)){
+  old_centers <- names(which(new_labels == i))
+  if(length(old_centers)>1){
+    new_centers[i,] <- colMeans(km$kmeans$centers[old_centers,])
+  }else{
+    new_centers[i,] <- km$kmeans$centers[old_centers,]
+  }
+}
+# Update axis
+rownames(new_centers) <- lapply(unique(new_labels), function(x) paste(c("Cluster: ", 
+                                                                        as.character(x), 
+                                                                        " Size: ", 
+                                                                        as.character(cluster_table[x])),
+                                                                      collapse=""))
+colnames(new_centers) <- colnames(km$kmeans$centers)
+km_u <- pheatmap(new_centers,
+                 cluster_cols = F, cluster_rows = T)
+
+
+
+
 inv_km <- pheatmap(inv_wide_data, kmeans_k = 20,
                cluster_cols = F, cluster_rows = T)
 hierarch <- pheatmap(norm_wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
@@ -543,12 +578,34 @@ inv_hierarch <- pheatmap(inv_wide_data, show_rownames=F, cluster_cols=F, cluster
                     clustering_distance_rows="euclidean",
                     cex=1, clustering_distance_cols="euclidean", 
                     clustering_method="complete", border_color=FALSE)
+
+#### WIP MERGE KMEANS ####
+png("rowise_hierarch_kmeans.png", width = 2000, height = 1600, pointsize = 10, res = 300)
+plot(km$tree_row)
+abline(h=1, col="red", lty=2, lwd=2)
+dev.off()
+
+new_labels <- sort(cutree(km$tree_row, h=1))
+km$kmeans$cluster <- unname(new_labels[km$kmeans$cluster])
+
+
+png("multidrug_rowise_hierarch_kmeans.png", width = 2000, height=1600, pointsize=10, res = 300)
+plot(k_all$tree_row)
+abline(h=0.7755, col="red", lty=2, lwd=2)
+dev.off()
+
+
+
 png("k_means_itra.png", width = 1600, height = 2000, pointsize = 20, res = 300)
 print(km)
 dev.off()
 png("hierarch_itra.png", width = 1600, height = 2000, pointsize = 20, res = 300)
 print(hierarch)
 dev.off()
+
+
+
+
 
 ### GENERATE CLUSTER GRAPHS ###
 # Convert wide data to long
@@ -625,11 +682,11 @@ write.csv(neighbour_lncrna_w_cluster,"neighbour_data.csv", row.names = FALSE)
 
 if(!file.exists("clustered_neighbours.csv")){
   same_clusters <- which(neighbour_lncrna_w_cluster$t_clust == neighbour_lncrna_w_cluster$n_clust)
-  same_clust_df <- neighbour_lncrna_w_cluster[same_clusters, ]
-  write.csv(same_clust_df, "clustered_neighbours.csv", row.names = F)
+  same_neigh_cluster_df <- neighbour_lncrna_w_cluster[same_clusters, ]
+  write.csv(same_neigh_cluster_df, "clustered_neighbours.csv", row.names = F)
   inv_clusters <- which(neighbour_lncrna_w_cluster$inv_t_clust == neighbour_lncrna_w_cluster$inv_n_clust)
-  inv_clust_df <- neighbour_lncrna_w_cluster[inv_clusters, ]
-  write.csv(inv_clust_df, "inv_clustered_neighbours.csv", row.names = F)
+  inv_neigh_cluster_df <- neighbour_lncrna_w_cluster[inv_clusters, ]
+  write.csv(inv_neigh_cluster_df, "inv_clustered_neighbours.csv", row.names = F)
 }else{
   same_neigh_cluster_df <- read.csv("clustered_neighbours.csv")
   inv_neigh_cluster_df <- read.csv("inv_clustered_neighbours.csv")
@@ -672,11 +729,11 @@ write.csv(sas_w_cluster,"sas_data.csv", row.names = FALSE)
 
 if(!file.exists("clustered_sas.csv")){
   same_clusters <- which(sas_w_cluster$t_clust == sas_w_cluster$n_clust)
-  same_clust_df <- sas_w_cluster[same_clusters, ]
-  write.csv(same_clust_df, "clustered_sas.csv", row.names = F)
+  same_sas_cluster_df <- sas_w_cluster[same_clusters, ]
+  write.csv(same_sas_cluster_df, "clustered_sas.csv", row.names = F)
   inv_clusters <- which(sas_w_cluster$inv_t_clust == sas_w_cluster$inv_n_clust)
-  inv_clust_df <- sas_w_cluster[inv_clusters, ]
-  write.csv(inv_clust_df, "inv_clustered_sas.csv", row.names = F)
+  inv_sas_cluster_df <- sas_w_cluster[inv_clusters, ]
+  write.csv(inv_sas_cluster_df, "inv_clustered_sas.csv", row.names = F)
 }else{
   same_sas_cluster_df <- read.csv("clustered_sas.csv")
   inv_sas_cluster_df <- read.csv("inv_clustered_sas.csv")
@@ -719,7 +776,23 @@ write.csv(present_inv_neigh_df, "inv_clustered_neighbours.csv", row.names = F)
 write.csv(present_same_sas_df, "clustered_sas.csv", row.names = F)
 write.csv(present_inv_sas_df, "inv_clustered_sas.csv", row.names = F)
 
+
+### IDENTIFY WHICH LNCRNA ARE FOUND IN SIMILAR MULTIDRUG CLUSTERS ###
+multidrug_cluster_df <- upset_p$New_data
+rownames(multidrug_cluster_df) <- x1
+multidrug_num <- as.character(unname(rowSums(multidrug_cluster_df)))
+multidrug_clust <- unlist(lapply(x1, function(x) unlist(as.character(str_split(x, "_")[[1]][2]))))
+multidrug_names <- unlist(lapply(x1, function(x) unlist(as.character(str_split(x, "_")[[1]][1]))))
+multidrug_combo <- c()
+for(i in 1:nrow(multidrug_cluster_df)){
+  lncrna_presence <- multidrug_cluster_df[i, ]
+  combo <- paste(colnames(lncrna_presence)[which(lncrna_presence == 1)], collapse=":")
+  multidrug_combo <- c(multidrug_combo, combo)
+}
+multidrug_lncrna_df <- as.data.frame(cbind(multidrug_names, multidrug_clust, multidrug_num, multidrug_combo))
+write.csv(multidrug_lncrna_df, "multidrug_clustered_lncrna.csv", row.names = F)
 # 
+
 # 
 # 
 # 
