@@ -20,8 +20,8 @@ library(UpSetR)
 library(wrapr)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-set.seed(0)
-#source("cluster_deseq.R")
+#set.seed(0)
+
 #source("get_neighbours.R")
 #source("analyse_neighbours.R")
 
@@ -362,7 +362,7 @@ upset_de <- upset(fromList(all_lncrna), sets = names(all_lncrna), point.size = 3
 png("de_upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
 print(upset_de)
 dev.off()
-set.seed(0)
+#set.seed(0)
 
 
 
@@ -388,138 +388,32 @@ dev.off()
 
 
 
-
-
-
-
 ### PERFORM CLUSTERING OF MULTIDRUG LNCRNA DATA ###
-k_all <- pheatmap(all_deseq$multiclust[,1:4], kmeans_k = 20,
-               cluster_cols = F, cluster_rows = T)
-# Extract only lncRNA
-multi_lncrna <-  all_deseq$multiclust[grep("MSTRG", all_deseq$multiclust$V6),]
-multi_lncrna_clusters <- k_all$kmeans$cluster[grep("MSTRG", all_deseq$multiclust$V6)]
-multidrug_df <- cbind(multi_lncrna, multi_lncrna_clusters)
+multi_lncrna <- all_deseq$multiclust[grep("MSTRG", all_deseq$multiclust$V6),]
+multi_data <- apply(multi_lncrna[,1:4], 2, as.numeric)
+multi_data <-  t(scale(t(multi_data)))
 
 
-### GENERATE CLUSTER GRAPHS ###
-# Convert wide data to long
-MULTIwide_data <-  as.data.frame(multidrug_df[,1:4])
-colnames(MULTIwide_data) <- c(0.5, 1, 2, 4)
-MULTIwide_data <- data.frame(apply(MULTIwide_data, 2, function(x) as.numeric(as.character(x))))
-# Add transcript ID, cluster number and transcript type (lncrna/pcg)
-MULTIwide_data$transcript <- paste(multidrug_df$V5, multidrug_df$V6,  sep="_")
-MULTIwide_data$cluster <- multi_lncrna_clusters
-MULTIwide_data$type <- rep("lncrna", nrow(MULTIwide_data))
+source("clustering.R")
 
-# Generate cluster medians
-MULTImedianscores <- as.data.frame(matrix(nrow=length(unique(MULTIwide_data$cluster)), ncol=4))
-for(c in 1:length(unique(MULTIwide_data$cluster))){
-  MULTImedianscores[c, ] <- apply(MULTIwide_data[MULTIwide_data$cluster==c,1:4] ,2, median)
+st_r <- list("strict"=40, "relaxed"=20)
+multi_str <- list()
+# Perform clustering with strict/relaxed K-value
+for(i in 1:length(st_r)){
+  output_name <- paste(c("multidrug_", names(st_r[i])), sep="", collapse="")
+  multidrug_clust <- cluster_data(multi_data, as.numeric(unname(st_r[i])), 1, output_name)
+  multidrug_df <- cbind(multi_lncrna, multidrug_clust)
+  # Generate line graphs from cluster data
+  multi_graph(multidrug_df, output_name)
+  # Generate upset plots of drug combinations
+  multi_p <- multi_shared(multidrug_df, output_name)
+  multi_str[[names(st_r[i])]] <- multi_p
 }
-MULTImedianscores$cluster <- 1:length(unique(MULTIwide_data$cluster))
-colnames(MULTImedianscores) <- c(0.5, 1, 2, 4, "cluster")
-MULTImedianscores$transcript <-  rep("Median", nrow(MULTImedianscores))
-MULTImedian_long <- melt(setDT(MULTImedianscores), id.vars = c("cluster", "transcript"), variable.name = "condition")
 
-MULTIlong_data <- melt(setDT(MULTIwide_data), id.vars = c("transcript", "cluster", "type"), variable.name = "condition")
+### IDENTIFY WHICH LNCRNA ARE FOUND IN THE STRICT/RELAXED MULTIDRUG CLUSTERING ###
+strict_multidrug <- extract_multi_clust_info(multi_str$strict$New_data, multi_str$strict$x1)
+relaxed_multidrug <- extract_multi_clust_info(multi_str$relaxed$New_data, multi_str$relaxed$x1)
 
-
-# Set the MIC to numeric format
-MULTIlong_data$condition <- gsub("X", "", MULTIlong_data$condition) 
-
-# Plot clusters
-p <- ggplot(data=MULTIlong_data, aes(x=condition, y=value, group=transcript)) +
-  geom_line(color="#00BFC4") + 
-  geom_line(data=MULTImedian_long, aes(x=condition, y=value, group=transcript), color="red") +
-  geom_hline(yintercept=0) +
-  facet_wrap(~ cluster) +
-  xlab("MIC") + ylab("Normalized Log2Fold Change")
-
-png("multidrug_cluster.png", width = 2000, height = 2000, pointsize = 20, res = 300)
-print(p)
-dev.off()
-
-
-
-
-# Attempt a Venn Diagram
-venn_data <- multidrug_df
-# Combine the cluster ID with the transcript ID
-venn_data$x <- paste(venn_data$V6,venn_data$multi_lncrna_clusters, sep="_")
-# Save each transcript per drug
-venn_list <- list()
-for(i in unique(venn_data$V5)){
-  venn_list[[i]] <- venn_data$x[venn_data$V5 == i]
-}
-venn_out <- venn(venn_list)
-venn_overview <- as.data.frame(cbind(rownames(venn_out),venn_out$counts))[-1,]
-colnames(venn_overview) <- c("combination", "count")
-
-upset_p <- upset(fromList(venn_list), sets = names(venn_list),
-                 #queries = list(list(query = intersects, params = list("simv", "terb"), color = "orange", active = T),
-                 #               list(query = intersects, params = list("simv", "terb", "milt"), color = "green", active = T)),
-                 point.size = 3.5, line.size = 2, 
-                 order.by = "freq", text.scale = c(1.3, 1.3, 1, 1, 2, 1), 
-                 mainbar.y.label = "Number of lncRNA", sets.x.label = "DE lncRNA Per Condition")
-
-# Look at what is shared between the drugs
-x1 <- unlist(venn_list, use.names = FALSE)
-x1 <- x1[ !duplicated(x1) ]
-# Generate an empty matrix for each combination
-cluster_frequency <- matrix(nrow = length(venn_overview$combination), ncol = 20, data = 0)
-exact_cluster_frequency <- matrix(nrow = length(venn_overview$combination), ncol = 20, data = 0)
-exact_combo_list <- list()
-combo_transcript_list <- list()
-for(combo_i in 1:length(venn_overview$combination)){
-  combo <- venn_overview$combination[combo_i]
-  single_combo_list <- list()
-  split_combo <- str_split(combo, ":")
-  combo_binary <- upset_p$New_data[split_combo[[1]]]
-  # Compounding value transcripts
-  combo_transcripts <- x1[(rowSums(combo_binary) == ncol(combo_binary))]
-  freq_table <- table(unlist(lapply(combo_transcripts, function(x) as.numeric(str_split(x, "_")[[1]][2]))))
-  
-  cluster_ids <- names(freq_table)
-  for(cluster_i in 1:length(cluster_ids)){
-    cluster_frequency[combo_i, as.numeric(cluster_ids[cluster_i])] <- as.numeric(freq_table[cluster_i])
-  }
-  
-  # Exact value transcripts
-  all_transcripts <- x1[(rowSums(upset_p$New_data) == ncol(combo_binary))]
-  exact_transcripts <- combo_transcripts[combo_transcripts %in% all_transcripts]
-  exfreq_table <- table(unlist(lapply(exact_transcripts, function(x) as.numeric(str_split(x, "_")[[1]][2]))))
-  exfreq_raw_cluster <- unlist(lapply(exact_transcripts, function(x) as.numeric(str_split(x, "_")[[1]][2])))
-  exfreq_raw_name <- unlist(lapply(exact_transcripts, function(x) str_split(x, "_")[[1]][1]))
-  excluster_ids <- names(exfreq_table)
-
-  for(cluster_i in 1:length(excluster_ids)){
-    cluster_transcripts <- exfreq_raw_name[which(exfreq_raw_cluster == excluster_ids[cluster_i])]
-    single_combo_list[as.character(excluster_ids[cluster_i])] <- list(cluster_transcripts)
-    exact_cluster_frequency[combo_i, as.numeric(excluster_ids[cluster_i])] <- as.numeric(exfreq_table[cluster_i])
-    
-  }
-  if(length(single_combo_list)>0){
-    combo_transcript_list[combo] <- list(single_combo_list)
-  }
-
-}
-cluster_freq_df <- as.data.frame(cluster_frequency, row.names = venn_overview$combination)
-colnames(cluster_freq_df) <- as.character(c(1:20))
-cluster_freq_df$total <- rowSums(cluster_freq_df)
-
-excluster_freq_df <- as.data.frame(exact_cluster_frequency, row.names = venn_overview$combination)
-colnames(excluster_freq_df) <- as.character(c(1:20))
-excluster_freq_df$total <- rowSums(excluster_freq_df)
-
-# Save transcript data
-saveRDS(combo_transcript_list, file = "multidrug_clustered_transcripts.rds")
-
-# Save cluster frequency matrix
-write.csv(cluster_freq_df, "multidrug_cluster_frequency.csv")
-write.csv(excluster_freq_df, "multidrug_exact_cluster_frequency.csv")
-png("upset.png", width = 3000, height = 3000, pointsize = 20, res = 300)
-print(upset_p)
-dev.off()
 
 ### PERFORM CLUSTERING OF ITRA DATA ###
 itra_data <- all_deseq$itra
@@ -530,383 +424,101 @@ norm_wide_data <-  t(scale(t(itra_lfc)))
 lncrna_id <- grep("MSTRG", rownames(norm_wide_data))
 inv_wide_data <- norm_wide_data
 inv_wide_data[lncrna_id, ] <- inv_wide_data[lncrna_id, ] * -1
-# Perform clustering
-set.seed(0)
-km <- pheatmap(norm_wide_data, kmeans_k = 20,
-               cluster_cols = F, cluster_rows = T)
 
-new_labels <- sort(cutree(km$tree_row, h=1))
-km_names <- names(km$kmeans$cluster)
 
-new_cluster <- c()
-for(i in km$kmeans$cluster){
-  label <- new_labels[which(names(new_labels) == i)]
-  new_cluster <- c(new_cluster, label)
+source("clustering.R")
+
+
+# Perform clustering with strict/relaxed K-value
+itra_str <- list()
+for(i in 1:length(st_r)){
+  output_name <- paste(c("itra_", names(st_r[i])), sep="", collapse="")
+  itra_clust <- cluster_data(norm_wide_data, as.numeric(unname(st_r[i])), 1, output_name)
+  itra_inv <- cluster_data(inv_wide_data, as.numeric(unname(st_r[i])), 1, output_name)
+  itra_df <- cbind(norm_wide_data, itra_clust)
+  itra_w_cluster <- itra_graph(itra_df, itra_inv, output_name)
+  itra_w_cluster <- as.data.frame(itra_w_cluster)
+  # Check whether neighbours/sas are in the same cluster
+  # And check similarities in the multidrug data
+  matched_neighbours <- match_clusters(neighbour_lncrna, itra_w_cluster)
+  matched_sas <- match_clusters(sense_antisense_pairs, itra_w_cluster)
+
 }
-names(new_cluster) <- km_names
-cluster_table <- table(new_cluster)
-# Update the centroid values for input back into pheatmap
-new_centers <- matrix(data = NA, nrow = length(unique(new_labels)), ncol=ncol(km$kmeans$centers))
-for(i in unique(new_labels)){
-  old_centers <- names(which(new_labels == i))
-  if(length(old_centers)>1){
-    new_centers[i,] <- colMeans(km$kmeans$centers[old_centers,])
-  }else{
-    new_centers[i,] <- km$kmeans$centers[old_centers,]
-  }
-}
-# Update axis
-rownames(new_centers) <- lapply(unique(new_labels), function(x) paste(c("Cluster: ", 
-                                                                        as.character(x), 
-                                                                        " Size: ", 
-                                                                        as.character(cluster_table[x])),
-                                                                      collapse=""))
-colnames(new_centers) <- colnames(km$kmeans$centers)
-km_u <- pheatmap(new_centers,
-                 cluster_cols = F, cluster_rows = T)
-
-
-
-
-inv_km <- pheatmap(inv_wide_data, kmeans_k = 20,
-               cluster_cols = F, cluster_rows = T)
-hierarch <- pheatmap(norm_wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
-                clustering_distance_rows="euclidean",
-                cex=1, clustering_distance_cols="euclidean", 
-                clustering_method="complete", border_color=FALSE)
-inv_hierarch <- pheatmap(inv_wide_data, show_rownames=F, cluster_cols=F, cluster_rows=T, 
-                    clustering_distance_rows="euclidean",
-                    cex=1, clustering_distance_cols="euclidean", 
-                    clustering_method="complete", border_color=FALSE)
-
-#### WIP MERGE KMEANS ####
-png("rowise_hierarch_kmeans.png", width = 2000, height = 1600, pointsize = 10, res = 300)
-plot(km$tree_row)
-abline(h=1, col="red", lty=2, lwd=2)
-dev.off()
-
-new_labels <- sort(cutree(km$tree_row, h=1))
-km$kmeans$cluster <- unname(new_labels[km$kmeans$cluster])
-
-
-png("multidrug_rowise_hierarch_kmeans.png", width = 2000, height=1600, pointsize=10, res = 300)
-plot(k_all$tree_row)
-abline(h=0.7755, col="red", lty=2, lwd=2)
-dev.off()
-
-
-
-png("k_means_itra.png", width = 1600, height = 2000, pointsize = 20, res = 300)
-print(km)
-dev.off()
-png("hierarch_itra.png", width = 1600, height = 2000, pointsize = 20, res = 300)
-print(hierarch)
-dev.off()
-
-
-
-
-
-### GENERATE CLUSTER GRAPHS ###
-# Convert wide data to long
-wide_data <-  as.data.frame(norm_wide_data)
-# Add transcript ID, cluster number and transcript type (lncrna/pcg)
-wide_data$transcript <- rownames(wide_data)
-wide_data$cluster <- km$kmeans$cluster
-wide_data$inv_cluster <- inv_km$kmeans$cluster
-wide_data$type <- rep("pcg", nrow(wide_data))
-wide_data$type[grep("MSTRG", wide_data$transcript)] <- "lncrna"
-
-# Generate cluster medians
-medianscores <- as.data.frame(matrix(nrow=length(unique(wide_data$cluster)), ncol=5))
-for(c in 1:length(unique(wide_data$cluster))){
-  medianscores[c, ] <- apply(wide_data[wide_data$cluster==c,1:5] ,2, median)
-}
-medianscores$cluster <- 1:length(unique(wide_data$cluster))
-colnames(medianscores) <- c(0.25, 0.5, 1, 2, 4, "cluster")
-medianscores$transcript <-  rep("Median", nrow(medianscores))
-median_long <- melt(setDT(medianscores), id.vars = c("cluster", "transcript"), variable.name = "condition")
-median_long$condition <- as.numeric(levels(median_long$condition))[median_long$condition]
-
-long_data <- melt(setDT(wide_data), id.vars = c("transcript", "cluster", "inv_cluster", "type"), variable.name = "condition")
-# Set the MIC to numeric format
-
-long_data$condition <- as.numeric(levels(long_data$condition))[long_data$condition]
-
-# Plot clusters
-p <- ggplot(data=long_data, aes(x=condition, y=value, group=transcript)) +
-  geom_line(color="#00BFC4") + 
-  geom_line(data=median_long, aes(x=condition, y=value, group=transcript), color="red") +
-  geom_hline(yintercept=0) +
-  facet_wrap(~ cluster) +
-  xlab("MIC") + ylab("Normalized Log2Fold Change")
-
-png("cluster.png", width = 2000, height = 2000, pointsize = 20, res = 300)
-print(p)
-dev.off()
-
-### CHECK WHETHER THE NEIGHBOURS ARE IN THE SAME CLUSTER ###
-if(file.exists("neighbour_data.csv")){
-  neighbour_lncrna_w_cluster <- read.csv("neighbour_data.csv")
-}else{
-  # Generate a new dataframe with cluster columns
-neighbour_lncrna_w_cluster <- neighbour_lncrna
-neighbour_lncrna_w_cluster$t_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
-neighbour_lncrna_w_cluster$n_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
-neighbour_lncrna_w_cluster$inv_t_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
-neighbour_lncrna_w_cluster$inv_n_clust <- rep(NA, nrow(neighbour_lncrna_w_cluster))
-
-for(i in 1:nrow(neighbour_lncrna)){
-  # Extract transcript names
-  t_name <- neighbour_lncrna$pcg_transcript[i]
-  n_name <- neighbour_lncrna$transcript_neighbour[i]
   
-  # Extract relevant IDs in wide data
-  t_wide_id <- which(t_name == wide_data$transcript)
-  n_wide_id <- which(n_name == wide_data$transcript)
-  # Check transcript exists in DESEQ results, if so add cluster details
-  if(length(t_wide_id) > 0){
-    t_data <- wide_data[t_wide_id, ]
-    neighbour_lncrna_w_cluster$t_clust[i] <- t_data$cluster
-    neighbour_lncrna_w_cluster$inv_t_clust[i] <- t_data$inv_cluster
-  }
-  if(length(n_wide_id) > 0){
-    n_data <- wide_data[n_wide_id, ]
-    neighbour_lncrna_w_cluster$n_clust[i] <- n_data$cluster
-    neighbour_lncrna_w_cluster$inv_n_clust[i] <- n_data$inv_cluster
-  }
+
+
+
+
+
+
   
-}
-write.csv(neighbour_lncrna_w_cluster,"neighbour_data.csv", row.names = FALSE)
-}
-
-if(!file.exists("clustered_neighbours.csv")){
-  same_clusters <- which(neighbour_lncrna_w_cluster$t_clust == neighbour_lncrna_w_cluster$n_clust)
-  same_neigh_cluster_df <- neighbour_lncrna_w_cluster[same_clusters, ]
-  write.csv(same_neigh_cluster_df, "clustered_neighbours.csv", row.names = F)
-  inv_clusters <- which(neighbour_lncrna_w_cluster$inv_t_clust == neighbour_lncrna_w_cluster$inv_n_clust)
-  inv_neigh_cluster_df <- neighbour_lncrna_w_cluster[inv_clusters, ]
-  write.csv(inv_neigh_cluster_df, "inv_clustered_neighbours.csv", row.names = F)
-}else{
-  same_neigh_cluster_df <- read.csv("clustered_neighbours.csv")
-  inv_neigh_cluster_df <- read.csv("inv_clustered_neighbours.csv")
-}
-
-
-### ANALYSE SENSE/ANTISENSE PAIRS ###
-if(file.exists("sas_data.csv")){
-  sas_w_cluster <- read.csv("sas_data.csv")
-}else {
-sas_w_cluster <- sense_antisense_pairs
-sas_w_cluster$t_clust <- rep(NA, nrow(sas_w_cluster))
-sas_w_cluster$n_clust <- rep(NA, nrow(sas_w_cluster))
-sas_w_cluster$inv_t_clust <- rep(NA, nrow(sas_w_cluster))
-sas_w_cluster$inv_n_clust <- rep(NA, nrow(sas_w_cluster))
-
-for(i in 1:nrow(sense_antisense_pairs)){
-  # Extract transcript names
-  t_name <- sense_antisense_pairs$pcg_transcript[i]
-  n_name <- sense_antisense_pairs$antisense_transcript[i]
   
-  # Extract relevant IDs in wide data
-  t_wide_id <- which(t_name == wide_data$transcript)
-  n_wide_id <- which(n_name == wide_data$transcript)
-  # Check transcript exists in DESEQ results, if so add cluster details
-  if(length(t_wide_id) > 0){
-    t_data <- wide_data[t_wide_id, ]
-    sas_w_cluster$t_clust[i] <- t_data$cluster
-    sas_w_cluster$inv_t_clust[i] <- t_data$inv_cluster
-  }
-  if(length(n_wide_id) > 0){
-    n_data <- wide_data[n_wide_id, ]
-    sas_w_cluster$n_clust[i] <- n_data$cluster
-    sas_w_cluster$inv_n_clust[i] <- n_data$inv_cluster
-  }
   
-}
-write.csv(sas_w_cluster,"sas_data.csv", row.names = FALSE)
-}
-
-if(!file.exists("clustered_sas.csv")){
-  same_clusters <- which(sas_w_cluster$t_clust == sas_w_cluster$n_clust)
-  same_sas_cluster_df <- sas_w_cluster[same_clusters, ]
-  write.csv(same_sas_cluster_df, "clustered_sas.csv", row.names = F)
-  inv_clusters <- which(sas_w_cluster$inv_t_clust == sas_w_cluster$inv_n_clust)
-  inv_sas_cluster_df <- sas_w_cluster[inv_clusters, ]
-  write.csv(inv_sas_cluster_df, "inv_clustered_sas.csv", row.names = F)
-}else{
-  same_sas_cluster_df <- read.csv("clustered_sas.csv")
-  inv_sas_cluster_df <- read.csv("inv_clustered_sas.csv")
-}
 
 
 
-### CHECK IF LNCRNA OF INTEREST ARE PRESENT IN CLUSTERS OR CONDITIONS ###
-add_presence <- function(input_cluster_df, input_matrix){
-  condition_combinations <- c()
-condition_numbers <- c()
-
-for(lncrna in input_cluster_df[,3]){
-  if(lncrna %in% rownames(input_matrix)){
-    lncrna_presence <- input_matrix[lncrna,]
-    combo <- paste(colnames(lncrna_presence)[which(lncrna_presence == 1)], collapse=":")
-    number_of_conditions <- unname(rowSums(lncrna_presence))
-
-  }else{
-    combo <- 0
-    number_of_conditions <- 0
-     }
- condition_combinations <- c(condition_combinations, combo)
-  condition_numbers <- c(condition_numbers, number_of_conditions)
-}
-output_cluster_df <- cbind(input_cluster_df, condition_numbers, condition_combinations)
-return(output_cluster_df)
-}
+# ### CHECK TO SEE IF NEIGHBOURS ARE IN THE SAME CLUSTER ###
+# strict_neighbours <- match_clusters(neighbour_lncrna, itra_str$strict)
+# relaxed_neighbours <- match_clusters(neighbour_lncrna, itra_str$relaxed)
+# 
+# ### CHECK TO SEE IF SAS PAIRS ARE IN THE SAME CLUSTER ###
+# strict_sas <- match_clusters(sense_antisense_pairs, itra_str$strict)
+# relaxed_sas <- match_clusters(sense_antisense_pairs, itra_str$relaxed)
 
 
 
-present_same_neigh_df <- add_presence(same_neigh_cluster_df, upset_present$New_data)
-present_inv_neigh_df <- add_presence(inv_neigh_cluster_df, upset_present$New_data)
-
-present_same_sas_df <- add_presence(same_sas_cluster_df, upset_present$New_data)
-present_inv_sas_df <- add_presence(inv_sas_cluster_df, upset_present$New_data)
-
-write.csv(present_same_neigh_df, "clustered_neighbours.csv", row.names = F)
-write.csv(present_inv_neigh_df, "inv_clustered_neighbours.csv", row.names = F)
-write.csv(present_same_sas_df, "clustered_sas.csv", row.names = F)
-write.csv(present_inv_sas_df, "inv_clustered_sas.csv", row.names = F)
 
 
-### IDENTIFY WHICH LNCRNA ARE FOUND IN SIMILAR MULTIDRUG CLUSTERS ###
-multidrug_cluster_df <- upset_p$New_data
-rownames(multidrug_cluster_df) <- x1
-multidrug_num <- as.character(unname(rowSums(multidrug_cluster_df)))
-multidrug_clust <- unlist(lapply(x1, function(x) unlist(as.character(str_split(x, "_")[[1]][2]))))
-multidrug_names <- unlist(lapply(x1, function(x) unlist(as.character(str_split(x, "_")[[1]][1]))))
-multidrug_combo <- c()
-for(i in 1:nrow(multidrug_cluster_df)){
-  lncrna_presence <- multidrug_cluster_df[i, ]
-  combo <- paste(colnames(lncrna_presence)[which(lncrna_presence == 1)], collapse=":")
-  multidrug_combo <- c(multidrug_combo, combo)
-}
-multidrug_lncrna_df <- as.data.frame(cbind(multidrug_names, multidrug_clust, multidrug_num, multidrug_combo))
-write.csv(multidrug_lncrna_df, "multidrug_clustered_lncrna.csv", row.names = F)
-# 
 
+
+# ### CHECK IF LNCRNA OF INTEREST ARE PRESENT IN CLUSTERS OR CONDITIONS ###
+# add_presence <- function(input_cluster_df, input_matrix){
+#   condition_combinations <- c()
+# condition_numbers <- c()
 # 
+# for(lncrna in input_cluster_df[,3]){
+#   if(lncrna %in% rownames(input_matrix)){
+#     lncrna_presence <- input_matrix[lncrna,]
+#     combo <- paste(colnames(lncrna_presence)[which(lncrna_presence == 1)], collapse=":")
+#     number_of_conditions <- unname(rowSums(lncrna_presence))
 # 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# ### PERFORM DE ###
-# 
-# 
-# # Generate logfold change
-# source("repo_deseq.R")
-# deseq_results <- deseq_func(count_directory = count_folder, split_file_path = split_file,
-#                         p_val = 0.05 , min_base_mean = 30 , min_LFC = 1, signif_base_mean = 5000)
-# 
-# 
-# 
-# 
-# setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-# logchange <- deseq_results[[1]]
-# signif_bmean <- deseq_results[[2]]
-# raw_bmean <- deseq_results[[3]]
-# colnames(raw_bmean) <- colnames(logchange)
-# raw_counts <- deseq_results[[4]]
-# 
-# write.csv(logchange,paste(c(prefix,"_lfc.csv"),sep="", collapse=""), row.names = T)
-# # Only generate heatmaps for itra data
-# if(prefix == "itra"){
-#   # Generate clusters and heatmaps
-#   ### GENERATE HEATMAP - Harry Chown ###
-#   # Convert data into a matrix which can be used as input for heatmap
-#   set.seed(2)
-#   gene_names <- logchange[,1]
-#   clust_num <- 30
-#   out<- pheatmap(logchange, kmeans_k = clust_num, scale = "row", 
-#                  cluster_cols = F)
-#   out2<- pheatmap(logchange,
-#                   show_rownames=F, cluster_cols=F, cluster_rows=T, scale="row",
-#                   cex=1, clustering_distance_rows="euclidean", cex=1,
-#                   clustering_distance_cols="euclidean", clustering_method="complete", border_color=FALSE)
-#   cluster_labels <- out$kmeans$cluster
-#   
-#   tiff(file = paste(c(output_dir,"/log_cluster_heatmap.tiff"),sep="", collapse=""),
-#        unit = "in",
-#        res=600,
-#        height = 7,
-#        width = 4.5)
-#   
-#   print(out)
-#   
-#   dev.off()
-#   
-#   tiff(file = paste(c(output_dir,"/log_hierarchical_heatmap.tiff"),sep="", collapse=""),
-#        unit = "in",
-#        res=600,
-#        height = 7,
-#        width = 4.5)
-#   
-#   print(out2)
-#   
-# 
-#   
-#   dev.off()
-#   logchange_w_cluster <-  add_column(logchange, cluster = cluster_labels, .before = 1)
-#   write.csv(logchange_w_cluster, paste(c(output_dir,"/lfc_w_cluster.csv"),sep="", collapse=""), row.names = T)
-#   
+#   }else{
+#     combo <- 0
+#     number_of_conditions <- 0
+#      }
+#  condition_combinations <- c(condition_combinations, combo)
+#   condition_numbers <- c(condition_numbers, number_of_conditions)
+# }
+# output_cluster_df <- cbind(input_cluster_df, condition_numbers, condition_combinations)
+# return(output_cluster_df)
 # }
 # 
 # 
 # 
+# present_same_neigh_df <- add_presence(same_neigh_cluster_df, upset_present$New_data)
+# present_inv_neigh_df <- add_presence(inv_neigh_cluster_df, upset_present$New_data)
 # 
+# present_same_sas_df <- add_presence(same_sas_cluster_df, upset_present$New_data)
+# present_inv_sas_df <- add_presence(inv_sas_cluster_df, upset_present$New_data)
 # 
-# 
-# 
-# 
-# # Identify and annotate lncRNA with neighbouring genes
-# source("get_neighbours.R")
-# lncRNA_pcg_neighbours <- get_neighbours(gtf, lncRNA_lines, PCG_lines, 5000, 10)
-# 
-# nextdoor_lncrna <- get_neighbours(gtf, lncRNA_lines, PCG_lines, 5000, 1)
-# 
-# 
-# antisense_pcg_neighbours <- get_neighbours(gtf, transcript_lines[antisense_id], PCG_lines, 5000, 10)
-# intergenic_pcg_neighbours <- get_neighbours(gtf, transcript_lines[intergenic_id], PCG_lines, 5000, 10)
-# k_pcg_neighbours <- get_neighbours(gtf, transcript_lines[k_id], PCG_lines, 5000, 10)
-# # Identify which neighbour pairs are correlated
-# setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-# source("analyse_neighbours.R")
-# a_n_stats <- analyse_neighbours("antisense_neighbours", "/home/harry/Documents/lncRNA_21_10/neighbours/", antisense_pcg_neighbours, logchange, raw_counts, bmean_df=raw_bmean)
-# i_n_stats <- analyse_neighbours("intergenic_neighbours", "/home/harry/Documents/lncRNA_21_10/neighbours/", intergenic_pcg_neighbours, logchange, raw_counts, bmean_df=raw_bmean)
-# k_n_stats <- analyse_neighbours("k_neighbours", "/home/harry/Documents/lncRNA_21_10/neighbours/", k_pcg_neighbours, logchange, raw_counts, bmean_df=raw_bmean)
-# 
-# DE_a_n <- a_n_stats[[1]]
-# # Identify points with the most extreme values
-# 
-# #p<-ggplot(DE_A_N, aes(x=r_val.cor, y=lncRNA_r_val.cor)) +
-# #  geom_point() +
-# #  lims(x=c(-1,1),y=c(-1,1)) +
-# #  theme_minimal() +
-# #  coord_fixed() +  
-# #  geom_vline(xintercept = 0) + geom_hline(yintercept = 0) 
-# #p
-# 
-# 
-# # Identify which sense/antisense pairs are correlated
-# # Iterate through the pairs and extract the corresponding info
-# #lncRNA, PCG_id, PCG_transcript, distance (0), ordered_desc
-# 
-# 
-# sas_df <- annotate_pcg(sas_out)
-# sas_stats <- analyse_neighbours("sas", "/home/harry/Documents/lncRNA_21_10/s_as_pairs/", sas_df, logchange, raw_counts, bmean_df=raw_bmean)
-# 
+# write.csv(present_same_neigh_df, "clustered_neighbours.csv", row.names = F)
+# write.csv(present_inv_neigh_df, "inv_clustered_neighbours.csv", row.names = F)
+# write.csv(present_same_sas_df, "clustered_sas.csv", row.names = F)
+# write.csv(present_inv_sas_df, "inv_clustered_sas.csv", row.names = F)
+
+
+# ### IDENTIFY WHICH LNCRNA ARE FOUND IN SIMILAR MULTIDRUG CLUSTERS ###
+# multidrug_cluster_df <- multi_p$New_data
+# rownames(multidrug_cluster_df) <- multi_p$x1
+# multidrug_num <- as.character(unname(rowSums(multidrug_cluster_df)))
+# multidrug_clust <- unlist(lapply(multi_p$x1, function(x) unlist(as.character(str_split(x, "_")[[1]][2]))))
+# multidrug_names <- unlist(lapply(multi_p$x1, function(x) unlist(as.character(str_split(x, "_")[[1]][1]))))
+# multidrug_combo <- c()
+# for(i in 1:nrow(multidrug_cluster_df)){
+#   lncrna_presence <- multidrug_cluster_df[i, ]
+#   combo <- paste(colnames(lncrna_presence)[which(lncrna_presence == 1)], collapse=":")
+#   multidrug_combo <- c(multidrug_combo, combo)
+# }
+# multidrug_lncrna_df <- as.data.frame(cbind(multidrug_names, multidrug_clust, multidrug_num, multidrug_combo))
+# write.csv(multidrug_lncrna_df, "multidrug_clustered_lncrna.csv", row.names = F)
 
