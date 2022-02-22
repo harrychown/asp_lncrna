@@ -1,0 +1,76 @@
+*** Scoring parameters ***
+
+Scoring type: global similarity
+Scoring parameters:
+pair match:       10
+pair indel:       -5
+base match:       1
+base replacement: 0
+base indel:       -10
+
+
+Input string (upper or lower case); & to end for multiple alignments, @ to quit
+[22;36m....,....1....,....2....,....3....,....4....,....5....,....6....,....7....,....8[0;0m
+global optimal score: -2335
+MSTRG.5949.8             C--GGUAGC-------------------GUAGUGGUAAGCGCUCCGAGGCAGCCU
+AfuSINE2-1a              AAGUGUACAUAGAGCCGGUAGCGGUAGCGUAGUGGUAAGCGCUCCGAGGCAGCCU
+                             ***                     ***************************
+MSTRG.5949.8             CUAGAGAAGUAGGAUUGGUGACCCUGCUUUUUUGGAGGUUAUGGGUUCGAUUCCC
+AfuSINE2-1a              CUAGAGAAGUAGGAUUGGUGACCCUGCUUUUUUGGAGGUUAU-------------
+                         ******************************************             
+MSTRG.5949.8             GUCGCCAGCACAACAUUUACCACCACAAUGGAAGAUCACUUCCCACAAUGGUAUC
+AfuSINE2-1a              G--GGUU-CG-A---UU--C---------------------------------CC
+                         *  *    *  *   **  *                                  *
+MSTRG.5949.8             AAGGCCCCU-C-------CCUU-------AUCGCAAG-GUGGU-----GGGGAAG
+AfuSINE2-1a              GUCGCUGGCACAACAUUUACCACCACAAUGGAAGAUCACUUCCCACAAUGGUAUC
+                            **     *        *              *    *         ** *  
+MSTRG.5949.8             UUGGAACAAUCACAGGCCUGCAAGGCGAGGCUCUAAAUUCGCCCUCAUAUAAUGG
+AfuSINE2-1a              AAGGC-----C--A---CUCC--CUUAUCGCAAGGU-GGUGGGGAAGUUGGAACA
+                           **      *  *   ** *        **         *      *   *   
+MSTRG.5949.8             AACAAAAUGUAACUAGAC-A--CAC-AA----G------GAU---U--AGC---U
+AfuSINE2-1a              AUCACAGGCCUGUAAGGCGAGGCUCUAAAUUCGCCCUCAUGUAAUGGAACAAAAU
+                         * ** *        ** * *  * * **    *        *      *     *
+MSTRG.5949.8             AU--A---GUC------GAUACCUGCAUAUC-GCCCA---AGGCGAGG---GGUC
+AfuSINE2-1a              GUAACUAGACACACAAGGAUUAGCUAUAGUCGAUACCUGCAUAUCGCCCAAGGCG
+                          *               ***         **    *    *          **  
+MSTRG.5949.8             -------AGCGUAUGAAUACUACUACUACUACUACUACCUGUAUUGUUAUACAAU
+AfuSINE2-1a              AGGGGUCAGCGUAUG---AGUACUACUACUACUACU-------------------
+                                ********   * ****************                   
+MSTRG.5949.8             AUCGGUGUUCUUUUUUCAUUCCCUAAAUGGCUUCGAUUACAAACGGGGCAAGGCU
+AfuSINE2-1a              -------A-CU------A--C----------U-----------------AAG---
+                                  **      *  *          *                 ***   
+MSTRG.5949.8             GUACCGGAUGCGCCGGAUACACCGGAAGCUGCCCGAAAUCACCCAAAUACCUACU
+AfuSINE2-1a              ---------------------------UGUACA-----U-AG--AGA--------
+                                                      * *      * *   * *        
+
+MSTRG.5949.8             .--((((((-------------------(((((((((.(((((....((((((((
+AfuSINE2-1a              ..((((((((..((..(((((.(((((.((((((.(..(((((.((((.((((((
+                         *  ******                   ****** * *******   * ******
+MSTRG.5949.8             (((((((((((((.........))))))))))))))))))(((((.......)))
+AfuSINE2-1a              (((((((((((((.........))))))))))))))))))..-------------
+                         ****************************************               
+MSTRG.5949.8             )).)))...........(((((.......(((((....))))).....)))))..
+AfuSINE2-1a              .--).))-))-.---..--(---------------------------------((
+                            * *     *   **  *                                   
+MSTRG.5949.8             ..(((((((-(-------((((-------(((((...-)))))-----)))).((
+AfuSINE2-1a              .((((((((........(((((.......(((((....))))).....)))))..
+                         * *******         ****       ******** *****     ****   
+MSTRG.5949.8             (((.(....((.((.........((((((........)))))).........)))
+AfuSINE2-1a              .((((-----(--(---((.(--((((((((...))-))))))).))).......
+                          ** *     *  *     *   ******  ***   ****** *   ****   
+MSTRG.5949.8             )......).)))))....-.--...-..----.------(((---(--(..---.
+AfuSINE2-1a              ......)))))....((((((........))))))....(((...(..(((...)
+                          ***** * **   *       *** **           ***   *  *      
+MSTRG.5949.8             .)--)---)))------((((......))))-(((..---.)))))))---))))
+AfuSINE2-1a              ))..)...)))......(((((....)))))((((......)))))))...))))
+                          *  *   ***      **** **** **** *****   ********   ****
+MSTRG.5949.8             -------))))).....))))))))).........((((.(((((((...)))))
+AfuSINE2-1a              ).)))..)))))...---).))))))..))))).))-------------------
+                                ********   * ********     *                     
+MSTRG.5949.8             )).)))).........((((.....))))((((((........))))))..((.(
+AfuSINE2-1a              -------)-))------.--)----------)-----------------..)---
+                                                                          **    
+MSTRG.5949.8             (((((((.....)))).))))))....))))))......................
+AfuSINE2-1a              ---------------------------))))))-----)-..--...--------
+                                                    ******       **  ***        
+

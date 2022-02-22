@@ -1,0 +1,42 @@
+#!/bin/bash --login
+#$ -cwd
+#$ -N zorf
+module load apps/binapps/anaconda3/2020.07
+module load tools/env/proxy2 
+
+
+
+
+conda activate blast_env
+makeblastdb -in transposon_stranded.fa -dbtype nucl -out tr_db
+blastn -db tr_db -query lncRNA_v11.3.fa -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qcovhsp" -out "lncrna_v_tr.tsv" -num_threads $NSLOTS 
+
+awk '$13>60' lncrna_v_tr.tsv > coverage_cutoff.tsv
+awk '{ print $1 }' coverage_cutoff.tsv| sort | uniq > query_lncrna.txt
+conda activate seqkit_env
+seqtk subseq lncRNA_v11.3.fa query_lncrna.txt > query_lncrna.fa
+
+fasta_headers=$(grep ">" query_lncrna.fa)
+rm largest_orf.fa orf_size.txt out_stranded.fa
+while IFS= read -r line
+do
+	grep -A 1 "$line" query_lncrna.fa > tmp.fa
+	conda activate emboss_env
+	getorf -find 1 tmp.fa orf.tmp.fa
+	conda activate lncrna
+	samtools faidx orf.tmp.fa
+	largest_data=$(cut -f1,2 orf.tmp.fa.fai | sort -k2 -n | tail -1)
+	echo $largest_data >> orf_size.txt
+	echo $largest_data | cut -d" " -f1 > tmp.lorf.txt
+	conda activate seqkit_env
+	sequence=$(seqtk subseq orf.tmp.fa tmp.lorf.txt)
+	echo $sequence >> largest_orf.fa
+	if [ grep -q "REVERSE" "$sequence" ]
+	then
+		sed 's/>/>minus_/g' tmp.fa >> out_stranded.fa
+	else
+		sed 's/>/>plus_/g' tmp.fa >> out_stranded.fa
+	fi
+
+done <<< "$fasta_headers"
+sort  -k2 -n -r orf_size.txt > orf_size.ordered.txt
