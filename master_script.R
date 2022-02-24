@@ -106,7 +106,7 @@ outputdir <- configuration_file[2]
 split_dir <- paste(c(inputdir, "/split_files"), sep="", collapse="")
 all_split_files <- list.files(path=split_dir)
 count_dir <- paste(c(inputdir, "/counts"), sep="", collapse="")
-gtf_file <- paste(c(inputdir, "/lncRNA_v11.4_merged.gtf"), sep="", collapse="")
+gtf_file <- paste(c(inputdir, "/lncRNA_v11.5_merged.gtf"), sep="", collapse="")
 
 ### EXTRACT LNCRNA GROUPS FROM GTF ###
 # Extract transcript lines
@@ -234,6 +234,67 @@ sas_out <- do.call(rbind, Map(data.frame, pcg_transcript = s_t,
 overlap_freq <- as.data.frame(table(sas_out$antisense))
 overlap_overview <- as.data.frame(table(overlap_freq$Freq))
                                    
+### IDENTIFY LNCRNA LOCI ###
+# Find lncRNA and their upstream/downstream transcripts to unconver synteny
+
+
+get_synteny <- function(gtf_A, gtf_B, inclust, ndist = 10000){
+  # Function read a single line of closest output and return transcript ID's and distances
+  readline_closest_out <- function(inline){
+    splitline <- strsplit(inline, "\t")
+    transcript <- strsplit(splitline[[1]][10], "\"")[[1]][2]
+    neigh_transcript <- strsplit(splitline[[1]][20], "\"")[[1]][2]
+    neigh_dist <- splitline[[1]][21]
+    return(c(transcript, neigh_transcript, neigh_dist))
+  }
+  
+  bed_A <- gtf2bed(gtf_A)
+  bed_B <- gtf2bed(gtf_B)
+  # Perform downstream and upstream analysis so that we can identify what flanks each transcript
+  closest_downstream <- paste(c("bedtools closest -io -iu -k ", 1," -t all -D a -a ", bed_A, " -b ", bed_B),
+                              sep = "", collapse ="")
+  closest_upstream <- paste(c("bedtools closest -io -id -k ", 1," -t all -D a -a ", bed_A, " -b ", bed_B),
+                              sep = "", collapse ="")
+  downstream_results <- system(closest_downstream, intern = TRUE)
+  upstream_results <- system(closest_upstream, intern = TRUE)
+  closest_list <- list()
+  for(i in 1:length(upstream_results)){
+    line_up <- readline_closest_out(upstream_results[i])
+    line_down <- readline_closest_out(downstream_results[i])
+    t_id <- line_up[1]
+    clust_t <- inclust[which(inclust[,1]==t_id),2]
+    if(length(clust_t)==0){
+      clust_t <- NA
+    }
+
+
+
+    check_neigh <- function(line, inclust, ndist){
+        line_dist <- as.numeric(line[3])
+      sqrd_dist <- (as.numeric(line[3]) ** 2)
+      if(sqrd_dist > (ndist ** 2)){
+        line_dist <- NA
+      }
+      clust_num <- inclust[which(inclust[,1]==line[2]),2]
+      if(length(clust_num) == 0){
+        clust_num <- NA
+      }
+      return(c(line[2], line_dist, clust_num))
+    }
+
+    filtered_up <- check_neigh(line_up, inclust, ndist)
+    filtered_down <- check_neigh(line_down, inclust, ndist)
+
+
+    closest_list[[i]] <- c(t_id, clust_t, filtered_up, filtered_down)
+  }
+  closest_df <- do.call(rbind, closest_list)
+  na.omit(closest_df)
+  return(closest_df)
+}
+
+
+
 
 ### IDENTIFY NEIGHBOURING GENES ###
 # Use Bedtools closest to identify whether there are lncRNA directly next to PCGs
@@ -319,12 +380,12 @@ if(file.exists("lncnrna_deseq.rds")){
     split_file_path <- paste(c(inputdir, "/split_files/", split_file), sep="", collapse="")
     count_data <- read.csv(split_file_path, header=T)
     deseq_data <- getdeseq(count_data, count_dir)
-    write.csv(deseq_data$lfc,paste(c(prefix, "_lfc_data.csv"), sep="", collapse=""), row.names = TRUE)
-    write.csv(deseq_data$normlfc,paste(c(prefix, "_normlfc_data.csv"), sep="", collapse=""), row.names = TRUE)
+    write.csv(deseq_data$lfc,paste(c(outputdir, "/", prefix, "_lfc_data.csv"), sep="", collapse=""), row.names = TRUE)
+    write.csv(deseq_data$normlfc,paste(c(outputdir, "/", prefix, "_normlfc_data.csv"), sep="", collapse=""), row.names = TRUE)
     # Save all basemeans for each condition
     bmean_raw <- deseq_data$all_basemean
     bmean_df <- as.data.frame(cbind(bmean_raw[,1],rownames(bmean_raw), rep(prefix, nrow(bmean_raw))))
-    write.csv(bmean_df,paste(c(prefix, "_basemean_data.csv"), sep="", collapse=""), row.names = TRUE)
+    write.csv(bmean_df,paste(c(outputdir, "/", prefix, "_basemean_data.csv"), sep="", collapse=""), row.names = TRUE)
     bmean_list[[prefix]] <- bmean_df
     
     # Add the prefix to the normalised LFC ready for multidrug clustering
@@ -400,7 +461,7 @@ st_r <- list("strict"=40, "relaxed"=20)
 multi_str <- list()
 # Perform clustering with strict/relaxed K-value
 for(i in 1:length(st_r)){
-  output_name <- paste(c("multidrug_", names(st_r[i])), sep="", collapse="")
+  output_name <- paste(c(outputdir, "/multidrug_", names(st_r[i])), sep="", collapse="")
   multidrug_clust <- cluster_data(multi_data, as.numeric(unname(st_r[i])), 1, output_name)
   multidrug_df <- cbind(multi_lncrna, multidrug_clust)
   # Generate line graphs from cluster data
@@ -432,7 +493,7 @@ source("clustering.R")
 # Perform clustering with strict/relaxed K-value
 itra_str <- list()
 for(i in 1:length(st_r)){
-  output_name <- paste(c("itra_", names(st_r[i])), sep="", collapse="")
+  output_name <- paste(c(outputdir, "/itra_", names(st_r[i])), sep="", collapse="")
   itra_clust <- cluster_data(norm_wide_data, as.numeric(unname(st_r[i])), 1, output_name)
   itra_inv <- cluster_data(inv_wide_data, as.numeric(unname(st_r[i])), 1, output_name)
   itra_df <- cbind(norm_wide_data, itra_clust)
@@ -444,14 +505,107 @@ for(i in 1:length(st_r)){
   matched_sas <- match_clusters(sense_antisense_pairs, itra_w_cluster)
 
 }
-  
+
+
+### IDENTIFY WHICH LNCRNA ARE FOUND IN SIMILAR MULTIDRUG CLUSTERS ###
+get_lncrna_multidrug_clust <- function(upset_data, upset_names, outname){
+  rownames(upset_data) <- upset_names
+  multidrug_num <- as.character(unname(rowSums(upset_data)))
+  multidrug_clust <- unlist(lapply(upset_names, function(x) unlist(as.character(str_split(x, "_")[[1]][2]))))
+  multidrug_names <- unlist(lapply(upset_names, function(x) unlist(as.character(str_split(x, "_")[[1]][1]))))
+  multidrug_combo <- c()
+  for(i in 1:nrow(upset_data)){
+    lncrna_presence <- upset_data[i, ]
+    combo <- paste(colnames(lncrna_presence)[which(lncrna_presence == 1)], collapse=":")
+    multidrug_combo <- c(multidrug_combo, combo)
+  }
+  multidrug_lncrna_df <- as.data.frame(cbind(multidrug_names, multidrug_clust, multidrug_num, multidrug_combo))
+  write.csv(multidrug_lncrna_df, outname, row.names = F)
+  return(multidrug_lncrna_df)
+}
+
+strict_lncrna <- get_lncrna_multidrug_clust(multi_str$strict$New_data, multi_str$strict$x1, paste(c(outputdir, "/strict_multidrug_lncrna.csv"), sep="", collapse=""))
+relaxed_lncrna <- get_lncrna_multidrug_clust(multi_str$relaxed$New_data, multi_str$relaxed$x1, paste(c(outputdir, "/relaxed_multidrug_lncrna.csv"), sep="", collapse=""))
+
+# Identify whether any lncRNA, that have similar expression in other drugs,
+# are close to each other (within 5kb)
+multicombo_lncrna <-  relaxed_lncrna[relaxed_lncrna$multidrug_num>1,]
+combo_names <- unique(multicombo_lncrna$multidrug_combo)
+combo_clust_synt <- list()
+for(i in combo_names){
+  combo_group <- multicombo_lncrna[multicombo_lncrna$multidrug_combo==i, ]
+  # Generate a table of lncRNA found in each cluster
+  clust_freq <- as.data.frame(table(combo_group$multidrug_clust))
+  multilncrna_freq <- clust_freq[clust_freq$Freq > 1,]
+  # Extract the lncRNA ID that are in the same cluster
+  clust_list <- list()
+  for(j in multilncrna_freq$Var1){
+    clust_group_ids <- combo_group$multidrug_names[combo_group$multidrug_clust == j]
+    gtf_list <- list()
+    # Identify and save all lncRNA found in the same chromosome
+    
+    for(x in clust_group_ids){
+
+      gtf_line <- raw_lncrna[grep(x, raw_lncrna)]
+      chr <- strsplit(gtf_line, "\t")[[1]][1]
+      if(chr %in% names(gtf_list)){
+        gtf_list[[chr]] <- c( gtf_list[[chr]], gtf_line)
+      } else{
+        gtf_list[[chr]] <- gtf_line
+      }
+    }
+    multi_gtf <- gtf_list[lengths(gtf_list) > 1]
+    # For those in the same chromosome get lengths
+    for(c in multi_gtf){
+      c=multi_gtf[1]
+
+      chr_bed <- gtf2bed(unlist(c))
+      closest_cmd <- paste(c("bedtools closest -io -iu -d -k 1 -D ref ",  "-a ", chr_bed, " -b ", chr_bed), 
+                                sep = "", collapse ="")
+      closest_res <- system(closest_cmd, intern = TRUE)
+      closest_filtered <- lapply(closest_res, function(x){if(as.numeric(strsplit(x, "\t")[[1]][length(str_split(x,"\t")[[1]])])> 1 && as.numeric(strsplit(x, "\t")[[1]][length(str_split(x,"\t")[[1]])])<10000){return(x)} })
+      closest_filtered <- closest_filtered[lengths(closest_filtered)!=0]
+      if(length(closest_filtered) > 0){
+        if(j %in% names(clust_list)){
+          clust_list[[j]] <- c( clust_list[[j]], closest_filtered)
+        } else{
+          clust_list[[j]] <- closest_filtered
+        }
+      }
+    }
+
+    
+  }
+  if(length(clust_list)>0){
+    combo_clust_synt[[i]] <- clust_list
+  }
+}
+
+
+## IDENTIFY SYNTENIC LOCI ##
+syntenic_loci <- get_synteny(raw_lncrna, raw_lncrna, itra_w_cluster[,6:7], ndist = 10000)
+syntenic_loci <- as.data.frame(syntenic_loci)
+colnames(syntenic_loci) <- c("central", "c_clust", "upstream", "u_dist", "u_clust", "downstream", "d_dist", "d_clust")
+write.csv(syntenic_loci, paste(c(outputdir, "/", "syntenic_loci.csv"), sep="", collapse = ""), row.names = F)
+de_syntenic_loci <- na.omit(syntenic_loci)
+write.csv(de_syntenic_loci, paste(c(outputdir, "/", "de_syntenic_loci.csv"), sep="", collapse = ""), row.names = F)
 
 
 
-
-
-
-  
+### IDENTIFY WHICH LNCRNA ARE FOUND IN SIMILAR MULTIDRUG CLUSTERS ###
+multidrug_cluster_df <- multi_p$New_data
+rownames(multidrug_cluster_df) <- multi_p$x1
+multidrug_num <- as.character(unname(rowSums(multidrug_cluster_df)))
+multidrug_clust <- unlist(lapply(multi_p$x1, function(x) unlist(as.character(str_split(x, "_")[[1]][2]))))
+multidrug_names <- unlist(lapply(multi_p$x1, function(x) unlist(as.character(str_split(x, "_")[[1]][1]))))
+multidrug_combo <- c()
+for(i in 1:nrow(multidrug_cluster_df)){
+  lncrna_presence <- multidrug_cluster_df[i, ]
+  combo <- paste(colnames(lncrna_presence)[which(lncrna_presence == 1)], collapse=":")
+  multidrug_combo <- c(multidrug_combo, combo)
+}
+multidrug_lncrna_df <- as.data.frame(cbind(multidrug_names, multidrug_clust, multidrug_num, multidrug_combo))
+write.csv(multidrug_lncrna_df, "multidrug_clustered_lncrna.csv", row.names = F)
   
   
 
@@ -460,7 +614,7 @@ for(i in 1:length(st_r)){
 # ### CHECK TO SEE IF NEIGHBOURS ARE IN THE SAME CLUSTER ###
 # strict_neighbours <- match_clusters(neighbour_lncrna, itra_str$strict)
 # relaxed_neighbours <- match_clusters(neighbour_lncrna, itra_str$relaxed)
-# 
+#
 # ### CHECK TO SEE IF SAS PAIRS ARE IN THE SAME CLUSTER ###
 # strict_sas <- match_clusters(sense_antisense_pairs, itra_str$strict)
 # relaxed_sas <- match_clusters(sense_antisense_pairs, itra_str$relaxed)
@@ -475,13 +629,13 @@ for(i in 1:length(st_r)){
 # add_presence <- function(input_cluster_df, input_matrix){
 #   condition_combinations <- c()
 # condition_numbers <- c()
-# 
+#
 # for(lncrna in input_cluster_df[,3]){
 #   if(lncrna %in% rownames(input_matrix)){
 #     lncrna_presence <- input_matrix[lncrna,]
 #     combo <- paste(colnames(lncrna_presence)[which(lncrna_presence == 1)], collapse=":")
 #     number_of_conditions <- unname(rowSums(lncrna_presence))
-# 
+#
 #   }else{
 #     combo <- 0
 #     number_of_conditions <- 0
@@ -492,15 +646,15 @@ for(i in 1:length(st_r)){
 # output_cluster_df <- cbind(input_cluster_df, condition_numbers, condition_combinations)
 # return(output_cluster_df)
 # }
-# 
-# 
-# 
+#
+#
+#
 # present_same_neigh_df <- add_presence(same_neigh_cluster_df, upset_present$New_data)
 # present_inv_neigh_df <- add_presence(inv_neigh_cluster_df, upset_present$New_data)
-# 
+#
 # present_same_sas_df <- add_presence(same_sas_cluster_df, upset_present$New_data)
 # present_inv_sas_df <- add_presence(inv_sas_cluster_df, upset_present$New_data)
-# 
+#
 # write.csv(present_same_neigh_df, "clustered_neighbours.csv", row.names = F)
 # write.csv(present_inv_neigh_df, "inv_clustered_neighbours.csv", row.names = F)
 # write.csv(present_same_sas_df, "clustered_sas.csv", row.names = F)
