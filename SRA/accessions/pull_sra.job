@@ -1,0 +1,32 @@
+#!/bin/bash --login
+#$ -cwd
+#$ -N sra_grab
+#$ -M harry.chown@postgrad.manchester.ac.uk
+#$ -m e
+
+module load apps/binapps/anaconda3/2020.07
+module load tools/env/proxy2 
+
+#conda create -n sratoolkit
+#conda install -c bioconda sra-tools
+conda activate sratoolkit
+
+mkdir fe
+while read p 
+do prefetch $p
+fastq-dump --outdir fe --split-files $p
+done <fe_sra.txt
+
+mkdir mito
+while read p 
+do prefetch $p
+fastq-dump --outdir mito --split-files $p
+done <mito_sra.txt
+
+mkdir time
+while read p 
+do prefetch $p
+fastq-dump --outdir time --split-files $p
+done <time_sra.txt
+
+

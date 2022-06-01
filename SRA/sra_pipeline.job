@@ -1,0 +1,37 @@
+#!/bin/bash --login
+#$ -cwd
+#$ -N pipe_sra
+#$ -t 1-3
+#$ -pe smp.pe 4
+
+
+CONDITION=`awk "NR==$SGE_TASK_ID" condition_names.txt`
+
+module load apps/binapps/anaconda3/2020.07
+module load tools/env/proxy2 
+
+: <<END
+### DOWNLOAD SRA DATA ###
+conda activate sratoolkit
+mkdir $CONDITION
+while read p 
+do prefetch $p
+fastq-dump --outdir $CONDITION --split-files $p
+done <"${CONDITION}_sra.txt"
+END
+
+### CHECK STRANDEDNESS ##
+conda activate lncrna
+# Extract first accession and change working dir
+TESTSEQ=$(head -n1 "${CONDITION}_sra.txt")
+cd $CONDTION
+# Conditional used to test whether sequence data is un/paired
+if [ -e "${TESTSEQ}_2.fastq" ]
+then
+	salmon quant -i ST_v11.3_merged_index --libType A --skipQuant -1 "${TESTSEQ}_1.fastq" -2 "${TESTSEQ}_2.fastq" -p $NSLOTS -o "${CONDITION}_test_quant"
+else
+	salmon quant -i ST_v11.3_merged_index --libType A --skipQuant -r "${TESTSEQ}_1.fastq" -p $NSLOTS -o "${CONDITION}_test_quant"
+fi
+
+
+

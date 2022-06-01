@@ -1,0 +1,17 @@
+#!/bin/bash --login
+#$ -cwd
+#$ -N blast_search
+#$ -pe smp.pe 10
+module load apps/binapps/anaconda3/2020.07
+conda activate blast_env
+
+# Append all genomes
+: <<END
+cat ~/scratch/lncrna/asp_genomes/* > ./asp_genomes.fa
+END
+makeblastdb -in fumigatus_genomes.fa -dbtype nucl -out asp_db
+blastn -db asp_db -query lncRNA_v11.3.fa -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qcovhsp qlen" -out "lncrna_v_all.tsv" -num_threads $NSLOTS 
+
+
+
+
